@@ -245,3 +245,93 @@ export const updateUsersElo = async (player1Id: string, player2Id: string, playe
     throw error
   }
 }
+
+export const getTopUsers = async (limit: number = 10): Promise<User[]> => {
+  try {
+    const usersQuery = query(
+      collection(db, "users"), 
+      orderBy("elo", "desc")
+    )
+    const querySnapshot = await getDocs(usersQuery)
+    return querySnapshot.docs.slice(0, limit).map((doc) => {
+      const data = doc.data()
+      return {
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt.toDate(),
+      } as User
+    })
+  } catch (error) {
+    console.error("Error getting top users:", error)
+    return []
+  }
+}
+
+export const getUserRank = async (userId: string): Promise<number> => {
+  try {
+    const user = await getUserById(userId)
+    if (!user) return 0
+
+    const usersQuery = query(
+      collection(db, "users"), 
+      where("elo", ">", user.elo),
+      orderBy("elo", "desc")
+    )
+    const querySnapshot = await getDocs(usersQuery)
+    return querySnapshot.docs.length + 1
+  } catch (error) {
+    console.error("Error getting user rank:", error)
+    return 0
+  }
+}
+
+export const subscribeToLeaderboard = (limit: number = 10, callback: (users: User[]) => void) => {
+  const usersQuery = query(
+    collection(db, "users"), 
+    orderBy("elo", "desc")
+  )
+
+  return onSnapshot(usersQuery, (querySnapshot) => {
+    const users = querySnapshot.docs.slice(0, limit).map((doc) => {
+      const data = doc.data()
+      return {
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt.toDate(),
+      } as User
+    })
+    callback(users)
+  })
+}
+
+export const getLeaderboardStats = async () => {
+  try {
+    const usersQuery = query(collection(db, "users"))
+    const querySnapshot = await getDocs(usersQuery)
+    
+    const totalPlayers = querySnapshot.docs.length
+    let totalElo = 0
+    let highestElo = 0
+    
+    querySnapshot.docs.forEach((doc) => {
+      const user = doc.data() as User
+      totalElo += user.elo
+      if (user.elo > highestElo) {
+        highestElo = user.elo
+      }
+    })
+    
+    return {
+      totalPlayers,
+      averageElo: totalPlayers > 0 ? Math.round(totalElo / totalPlayers) : 0,
+      highestElo
+    }
+  } catch (error) {
+    console.error("Error getting leaderboard stats:", error)
+    return {
+      totalPlayers: 0,
+      averageElo: 0,
+      highestElo: 0
+    }
+  }
+}

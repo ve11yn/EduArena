@@ -1,0 +1,16 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users collection - allow read for all authenticated users (needed for leaderboard)
+    // but write only for own profile
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Duels collection - allow read/write for authenticated users
+    match /duels/{duelId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

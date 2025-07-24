@@ -5,15 +5,18 @@ import { motion } from "framer-motion"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { signOutUser } from "@/lib/firebase/auth"
-import { getAllUsers } from "@/lib/firebase/firestore"
-import { Trophy, TrendingUp, Users, LogOut, Gamepad2 } from "lucide-react"
+import { useLeaderboard, getEloColor, getRankTitle } from "@/hooks/use-leaderboard"
+import { Trophy, TrendingUp, Users, LogOut, Gamepad2, Crown, Medal, Award } from "lucide-react"
 import Link from "next/link"
-import type { User } from "@/lib/firebase/firestore"
 
 export default function DashboardPage() {
   const { user, userProfile, loading: authLoading } = useAuth()
-  const [allUsers, setAllUsers] = useState<User[]>([])
-  const [loading, setLoading] = useState(true)
+  const { topUsers, stats, loading: leaderboardLoading, getUserRankPosition } = useLeaderboard({
+    limit: 10,
+    realtime: true,
+    includeStats: true
+  })
+  const [userRankPosition, setUserRankPosition] = useState<number>(0)
   const router = useRouter()
 
   useEffect(() => {
@@ -24,19 +27,15 @@ export default function DashboardPage() {
       return
     }
 
-    const fetchUsers = async () => {
-      try {
-        const users = await getAllUsers()
-        setAllUsers(users)
-      } catch (error) {
-        console.error("Error fetching users:", error)
-      } finally {
-        setLoading(false)
+    const fetchUserRank = async () => {
+      if (userProfile) {
+        const rank = await getUserRankPosition(userProfile.id)
+        setUserRankPosition(rank)
       }
     }
 
-    fetchUsers()
-  }, [user, authLoading, router])
+    fetchUserRank()
+  }, [user, userProfile, authLoading, router, getUserRankPosition])
 
   const handleLogout = async () => {
     try {
@@ -50,25 +49,10 @@ export default function DashboardPage() {
   }
 
   const getUserRank = () => {
-    if (!userProfile) return 0
-    return allUsers.findIndex((u) => u.id === userProfile.id) + 1
+    return userRankPosition
   }
 
-  const getEloColor = (elo: number) => {
-    if (elo >= 1200) return "text-yellow-400"
-    if (elo >= 800) return "text-cyan-400"
-    if (elo >= 600) return "text-green-400"
-    return "text-pink-400"
-  }
-
-  const getRankTitle = (elo: number) => {
-    if (elo >= 1200) return "GRANDMASTER"
-    if (elo >= 800) return "MASTER"
-    if (elo >= 600) return "EXPERT"
-    return "ROOKIE"
-  }
-
-  if (authLoading || loading) {
+  if (authLoading || leaderboardLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <motion.div
@@ -101,15 +85,26 @@ export default function DashboardPage() {
             <div className="w-full h-1 bg-gradient-to-r from-cyan-400 to-transparent mb-2"></div>
             <p className="font-terminal text-cyan-300 text-lg">READY FOR BATTLE?</p>
             <div className="mt-4">
-              <Link href="/play">
-                <motion.button
-                  whileHover={{ scale: 1.05, y: -2 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="retro-button font-pixel text-slate-900 px-8 py-3 text-sm tracking-wider"
-                >
-                  ⚔️ PLAY NOW
-                </motion.button>
-              </Link>
+              <div className="flex gap-4">
+                <Link href="/play">
+                  <motion.button
+                    whileHover={{ scale: 1.05, y: -2 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="retro-button font-pixel text-slate-900 px-8 py-3 text-sm tracking-wider"
+                  >
+                    ⚔️ PLAY NOW
+                  </motion.button>
+                </Link>
+                <Link href="/leaderboard">
+                  <motion.button
+                    whileHover={{ scale: 1.05, y: -2 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="bg-yellow-400/20 border-2 border-yellow-400 text-yellow-400 font-pixel px-6 py-3 text-sm tracking-wider hover:bg-yellow-400/30 transition-colors"
+                  >
+                    🏆 RANKINGS
+                  </motion.button>
+                </Link>
+              </div>
             </div>
           </div>
           <button
@@ -150,7 +145,7 @@ export default function DashboardPage() {
               <span className="font-pixel text-xs text-green-400 tracking-wider">RANK</span>
             </div>
             <div className="font-pixel text-3xl text-green-400 mb-2">#{getUserRank()}</div>
-            <p className="font-terminal text-green-300 text-sm">OF {allUsers.length} PLAYERS</p>
+            <p className="font-terminal text-green-300 text-sm">OF {stats.totalPlayers} PLAYERS</p>
           </motion.div>
 
           <motion.div
@@ -164,7 +159,7 @@ export default function DashboardPage() {
               <Users className="w-8 h-8 text-pink-400" />
               <span className="font-pixel text-xs text-pink-400 tracking-wider">PLAYERS</span>
             </div>
-            <div className="font-pixel text-3xl text-pink-400 mb-2">{allUsers.length}</div>
+            <div className="font-pixel text-3xl text-pink-400 mb-2">{stats.totalPlayers}</div>
             <p className="font-terminal text-pink-300 text-sm">ACTIVE WARRIORS</p>
           </motion.div>
         </div>
@@ -183,7 +178,7 @@ export default function DashboardPage() {
           <div className="w-full h-1 bg-gradient-to-r from-cyan-400 to-transparent mb-6"></div>
 
           <div className="space-y-3">
-            {allUsers.slice(0, 10).map((player, index) => (
+            {topUsers.map((player, index) => (
               <motion.div
                 key={player.id}
                 initial={{ opacity: 0, x: -20 }}
@@ -197,7 +192,7 @@ export default function DashboardPage() {
               >
                 <div className="flex items-center gap-4">
                   <div
-                    className={`w-8 h-8 flex items-center justify-center font-pixel text-xs ${
+                    className={`w-8 h-8 flex items-center justify-center font-pixel text-xs relative ${
                       index === 0
                         ? "bg-yellow-400 text-black"
                         : index === 1
@@ -208,6 +203,9 @@ export default function DashboardPage() {
                     }`}
                   >
                     {index + 1}
+                    {index === 0 && <Crown className="absolute -top-2 -right-2 w-4 h-4 text-yellow-400" />}
+                    {index === 1 && <Medal className="absolute -top-2 -right-2 w-4 h-4 text-gray-400" />}
+                    {index === 2 && <Award className="absolute -top-2 -right-2 w-4 h-4 text-amber-600" />}
                   </div>
                   <div>
                     <p className="font-pixel text-sm text-cyan-400">
