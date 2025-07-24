@@ -17,6 +17,8 @@ export default function DashboardPage() {
     includeStats: true
   })
   const [userRankPosition, setUserRankPosition] = useState<number>(0)
+  const [initialLeaderboardLoaded, setInitialLeaderboardLoaded] = useState(false)
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
   const router = useRouter()
 
   useEffect(() => {
@@ -37,14 +39,35 @@ export default function DashboardPage() {
     fetchUserRank()
   }, [user, userProfile, authLoading, router, getUserRankPosition])
 
+  // Mark initial leaderboard as loaded after first load
+  useEffect(() => {
+    if (!leaderboardLoading && !initialLeaderboardLoaded) {
+      setInitialLeaderboardLoaded(true)
+    }
+  }, [leaderboardLoading, initialLeaderboardLoaded])
+
   const handleLogout = async () => {
     try {
+      setIsLoggingOut(true)
       await signOutUser()
-      // Clear session cookie
+      
+      // Clear any session cookies
       document.cookie = "__session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT"
-      router.push("/")
+      
+      // Clear local storage if needed
+      localStorage.removeItem('userSession')
+      
+      // The auth context will automatically detect the sign out and redirect
+      // But we'll add a small delay and manual redirect as fallback
+      setTimeout(() => {
+        router.push("/login")
+      }, 1000)
+      
     } catch (error) {
       console.error("Logout error:", error)
+      setIsLoggingOut(false)
+      // Still try to redirect even if there's an error
+      router.push("/login")
     }
   }
 
@@ -52,7 +75,7 @@ export default function DashboardPage() {
     return userRankPosition
   }
 
-  if (authLoading || leaderboardLoading) {
+  if (authLoading || (!initialLeaderboardLoaded && leaderboardLoading)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <motion.div
@@ -85,21 +108,23 @@ export default function DashboardPage() {
             <div className="w-full h-1 bg-gradient-to-r from-cyan-400 to-transparent mb-2"></div>
             <p className="font-terminal text-cyan-300 text-lg">READY FOR BATTLE?</p>
             <div className="mt-4">
-              <div className="flex gap-4">
+              <div className="flex gap-4 relative z-10">
                 <Link href="/play">
                   <motion.button
                     whileHover={{ scale: 1.05, y: -2 }}
                     whileTap={{ scale: 0.95 }}
                     className="retro-button font-pixel text-slate-900 px-8 py-3 text-sm tracking-wider"
+                    style={{ pointerEvents: 'auto' }}
                   >
                     ⚔️ PLAY NOW
                   </motion.button>
                 </Link>
-                <Link href="/leaderboard">
+                <Link href="/leaderboard" className="relative z-10">
                   <motion.button
                     whileHover={{ scale: 1.05, y: -2 }}
                     whileTap={{ scale: 0.95 }}
-                    className="bg-yellow-400/20 border-2 border-yellow-400 text-yellow-400 font-pixel px-6 py-3 text-sm tracking-wider hover:bg-yellow-400/30 transition-colors"
+                    className="bg-yellow-400/20 border-2 border-yellow-400 text-yellow-400 font-pixel px-6 py-3 text-sm tracking-wider hover:bg-yellow-400/30 transition-colors relative z-10"
+                    style={{ pointerEvents: 'auto' }} // Ensure button is always clickable
                   >
                     🏆 RANKINGS
                   </motion.button>
@@ -109,10 +134,16 @@ export default function DashboardPage() {
           </div>
           <button
             onClick={handleLogout}
-            className="mt-4 md:mt-0 flex items-center gap-2 px-4 py-2 bg-red-600/80 border-2 border-red-400 text-red-300 font-pixel text-xs tracking-wider hover:bg-red-600 transition-colors"
+            disabled={isLoggingOut}
+            className={`mt-4 md:mt-0 flex items-center gap-2 px-4 py-2 border-2 font-pixel text-xs tracking-wider transition-colors relative z-50 ${
+              isLoggingOut 
+                ? "bg-gray-600/80 border-gray-400 text-gray-300 cursor-not-allowed"
+                : "bg-red-600/80 border-red-400 text-red-300 hover:bg-red-600"
+            }`}
+            style={{ pointerEvents: 'auto' }}
           >
-            <LogOut className="w-4 h-4" />
-            LOGOUT
+            <LogOut className={`w-4 h-4 ${isLoggingOut ? 'animate-spin' : ''}`} />
+            {isLoggingOut ? 'LOGGING OUT...' : 'LOGOUT'}
           </button>
         </motion.div>
 
@@ -174,6 +205,13 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3 mb-6">
             <Gamepad2 className="w-6 h-6 text-cyan-400" />
             <h2 className="font-pixel text-xl text-cyan-400 tracking-wider">LEADERBOARD</h2>
+            {leaderboardLoading && initialLeaderboardLoaded && (
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
+                className="w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full"
+              />
+            )}
           </div>
           <div className="w-full h-1 bg-gradient-to-r from-cyan-400 to-transparent mb-6"></div>
 

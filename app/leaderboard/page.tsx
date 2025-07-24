@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { motion } from "framer-motion"
 import { useAuth } from "@/lib/auth-context"
 import { 
@@ -110,21 +110,35 @@ export default function LeaderboardPage() {
   }
 
   const filterUsers = (users: User[]) => {
+    console.log(`🔍 Filtering users with filterView: ${filterView}`)
+    console.log(`📊 Total users before filter: ${users.length}`)
+    
+    let filtered: User[]
     switch (filterView) {
       case 'rookies':
-        return users.filter(u => u.elo < 600)
+        filtered = users.filter(u => u.elo < 600)
+        break
       case 'experts':
-        return users.filter(u => u.elo >= 600 && u.elo < 800)
+        filtered = users.filter(u => u.elo >= 600 && u.elo < 800)
+        break
       case 'masters':
-        return users.filter(u => u.elo >= 800 && u.elo < 1200)
+        filtered = users.filter(u => u.elo >= 800 && u.elo < 1200)
+        break
       case 'grandmasters':
-        return users.filter(u => u.elo >= 1200)
+        filtered = users.filter(u => u.elo >= 1200)
+        break
       default:
-        return users
+        filtered = users
     }
+    
+    console.log(`✅ Users after filter: ${filtered.length}`)
+    return filtered
   }
 
-  const filteredUsers = filterUsers(topUsers).slice(0, viewLimit)
+  const filteredUsers = useMemo(() => {
+    const filtered = filterUsers(topUsers)
+    return filtered.slice(0, viewLimit)
+  }, [topUsers, filterView, viewLimit])
 
   if (loading) {
     return (
@@ -251,15 +265,20 @@ export default function LeaderboardPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5 }}
-          className="bg-slate-800/80 border-2 border-slate-600 p-4 mb-6"
+          className="bg-slate-800/80 border-2 border-slate-600 p-4 mb-6 relative z-50"
         >
           <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
             <div className="flex items-center gap-4">
               <Filter className="w-5 h-5 text-slate-400" />
               <select
                 value={filterView}
-                onChange={(e) => setFilterView(e.target.value as any)}
-                className="bg-slate-700 border border-slate-600 text-cyan-400 font-pixel text-sm px-3 py-2"
+                onChange={(e) => {
+                  const newFilter = e.target.value as typeof filterView
+                  console.log(`🎯 Filter changed from ${filterView} to ${newFilter}`)
+                  console.log(`🎯 Event target value:`, e.target.value)
+                  setFilterView(newFilter)
+                }}
+                className="bg-slate-700 border border-slate-600 text-cyan-400 font-pixel text-sm px-3 py-2 cursor-pointer hover:border-cyan-400 transition-colors relative z-10"
               >
                 <option value="all">ALL RANKS</option>
                 <option value="rookies">ROOKIES (0-599)</option>
@@ -273,8 +292,12 @@ export default function LeaderboardPage() {
               <span className="font-terminal text-xs text-slate-400">SHOW:</span>
               <select
                 value={viewLimit}
-                onChange={(e) => setViewLimit(Number(e.target.value))}
-                className="bg-slate-700 border border-slate-600 text-cyan-400 font-pixel text-sm px-3 py-2"
+                onChange={(e) => {
+                  const newLimit = Number(e.target.value)
+                  console.log(`📊 View limit changed from ${viewLimit} to ${newLimit}`)
+                  setViewLimit(newLimit)
+                }}
+                className="bg-slate-700 border border-slate-600 text-cyan-400 font-pixel text-sm px-3 py-2 cursor-pointer hover:border-cyan-400 transition-colors relative z-10"
               >
                 <option value={10}>TOP 10</option>
                 <option value={25}>TOP 25</option>
@@ -297,6 +320,9 @@ export default function LeaderboardPage() {
             <h2 className="font-pixel text-xl text-cyan-400 tracking-wider">
               {filterView.toUpperCase()} RANKINGS
             </h2>
+            <span className="text-xs bg-cyan-400/20 text-cyan-300 px-2 py-1 font-terminal">
+              {filteredUsers.length} PLAYERS
+            </span>
           </div>
           <div className="w-full h-1 bg-gradient-to-r from-cyan-400 to-transparent mb-6"></div>
 

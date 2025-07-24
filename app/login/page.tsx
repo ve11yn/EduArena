@@ -6,6 +6,7 @@ import { motion } from "framer-motion"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { signInUser } from "@/lib/firebase/auth"
+import { getFirebaseErrorMessage } from "@/lib/firebase/error-handler"
 import { Eye, EyeOff, Mail, Lock, ArrowLeft } from "lucide-react"
 
 export default function LoginPage() {
@@ -29,7 +30,7 @@ export default function LoginPage() {
 
       router.push("/dashboard")
     } catch (err: any) {
-      setError(err.message || "An unexpected error occurred")
+      setError(getFirebaseErrorMessage(err))
     } finally {
       setLoading(false)
     }
