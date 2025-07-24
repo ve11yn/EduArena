@@ -3,72 +3,55 @@
 import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
+import { useAuth } from "@/lib/auth-context"
+import { signOutUser } from "@/lib/firebase/auth"
+import { getAllUsers } from "@/lib/firebase/firestore"
 import { Trophy, TrendingUp, Users, LogOut, Gamepad2 } from "lucide-react"
-
-interface User {
-  id: string
-  username: string
-  elo: number
-  created_at: string
-}
+import Link from "next/link"
+import type { User } from "@/lib/firebase/firestore"
 
 export default function DashboardPage() {
-  const [user, setUser] = useState<User | null>(null)
+  const { user, userProfile, loading: authLoading } = useAuth()
   const [allUsers, setAllUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const router = useRouter()
-  const supabase = createClient()
 
   useEffect(() => {
-    const getUser = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
+    if (authLoading) return
 
-      if (!session) {
-        router.push("/login")
-        return
-      }
-
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("*")
-        .eq("id", session.user.id)
-        .single()
-
-      if (userError) {
-        console.error("Error fetching user:", userError)
-        return
-      }
-
-      setUser(userData)
-
-      const { data: allUsersData, error: allUsersError } = await supabase
-        .from("users")
-        .select("*")
-        .order("elo", { ascending: false })
-
-      if (allUsersError) {
-        console.error("Error fetching users:", allUsersError)
-        return
-      }
-
-      setAllUsers(allUsersData)
-      setLoading(false)
+    if (!user) {
+      router.push("/login")
+      return
     }
 
-    getUser()
-  }, [router, supabase])
+    const fetchUsers = async () => {
+      try {
+        const users = await getAllUsers()
+        setAllUsers(users)
+      } catch (error) {
+        console.error("Error fetching users:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchUsers()
+  }, [user, authLoading, router])
 
   const handleLogout = async () => {
-    await supabase.auth.signOut()
-    router.push("/")
+    try {
+      await signOutUser()
+      // Clear session cookie
+      document.cookie = "__session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT"
+      router.push("/")
+    } catch (error) {
+      console.error("Logout error:", error)
+    }
   }
 
   const getUserRank = () => {
-    if (!user) return 0
-    return allUsers.findIndex((u) => u.id === user.id) + 1
+    if (!userProfile) return 0
+    return allUsers.findIndex((u) => u.id === userProfile.id) + 1
   }
 
   const getEloColor = (elo: number) => {
@@ -85,7 +68,7 @@ export default function DashboardPage() {
     return "ROOKIE"
   }
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <motion.div
@@ -98,7 +81,7 @@ export default function DashboardPage() {
     )
   }
 
-  if (!user) {
+  if (!user || !userProfile) {
     return null
   }
 
@@ -113,10 +96,21 @@ export default function DashboardPage() {
         >
           <div>
             <h1 className="font-pixel text-2xl md:text-3xl text-cyan-400 mb-2 tracking-wider">
-              WELCOME {user.username.toUpperCase()}
+              WELCOME {userProfile.username.toUpperCase()}
             </h1>
             <div className="w-full h-1 bg-gradient-to-r from-cyan-400 to-transparent mb-2"></div>
             <p className="font-terminal text-cyan-300 text-lg">READY FOR BATTLE?</p>
+            <div className="mt-4">
+              <Link href="/play">
+                <motion.button
+                  whileHover={{ scale: 1.05, y: -2 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="retro-button font-pixel text-slate-900 px-8 py-3 text-sm tracking-wider"
+                >
+                  ⚔️ PLAY NOW
+                </motion.button>
+              </Link>
+            </div>
           </div>
           <button
             onClick={handleLogout}
@@ -140,8 +134,8 @@ export default function DashboardPage() {
               <Trophy className="w-8 h-8 text-yellow-400" />
               <span className="font-pixel text-xs text-yellow-400 tracking-wider">ELO RATING</span>
             </div>
-            <div className={`font-pixel text-3xl ${getEloColor(user.elo)} mb-2`}>{user.elo}</div>
-            <p className="font-terminal text-yellow-300 text-sm">{getRankTitle(user.elo)}</p>
+            <div className={`font-pixel text-3xl ${getEloColor(userProfile.elo)} mb-2`}>{userProfile.elo}</div>
+            <p className="font-terminal text-yellow-300 text-sm">{getRankTitle(userProfile.elo)}</p>
           </motion.div>
 
           <motion.div
@@ -196,7 +190,7 @@ export default function DashboardPage() {
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.5 + index * 0.1 }}
                 className={`flex items-center justify-between p-4 border-2 transition-all ${
-                  player.id === user.id
+                  player.id === userProfile.id
                     ? "border-cyan-400 bg-cyan-400/10"
                     : "border-slate-600 hover:border-slate-500 bg-slate-900/50"
                 }`}
@@ -218,12 +212,12 @@ export default function DashboardPage() {
                   <div>
                     <p className="font-pixel text-sm text-cyan-400">
                       {player.username.toUpperCase()}
-                      {player.id === user.id && (
+                      {player.id === userProfile.id && (
                         <span className="ml-2 text-xs bg-cyan-400 text-black px-2 py-1">YOU</span>
                       )}
                     </p>
                     <p className="font-terminal text-xs text-cyan-300">
-                      JOINED {new Date(player.created_at).toLocaleDateString()}
+                      JOINED {player.createdAt.toLocaleDateString()}
                     </p>
                   </div>
                 </div>

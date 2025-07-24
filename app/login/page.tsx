@@ -5,7 +5,7 @@ import { useState } from "react"
 import { motion } from "framer-motion"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
+import { signInUser } from "@/lib/firebase/auth"
 import { Eye, EyeOff, Mail, Lock, ArrowLeft } from "lucide-react"
 
 export default function LoginPage() {
@@ -15,7 +15,6 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const router = useRouter()
-  const supabase = createClient()
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -23,18 +22,14 @@ export default function LoginPage() {
     setError("")
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
+      await signInUser(email, password)
 
-      if (error) {
-        setError(error.message)
-      } else {
-        router.push("/dashboard")
-      }
-    } catch (err) {
-      setError("An unexpected error occurred")
+      // Set session cookie for middleware
+      document.cookie = "__session=authenticated; path=/; max-age=86400"
+
+      router.push("/dashboard")
+    } catch (err: any) {
+      setError(err.message || "An unexpected error occurred")
     } finally {
       setLoading(false)
     }

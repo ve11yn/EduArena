@@ -1,28 +1,30 @@
-import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs"
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
 export async function middleware(req: NextRequest) {
-  const res = NextResponse.next()
-  const supabase = createMiddlewareClient({ req, res })
+  // Get the session token from cookies
+  const sessionToken = req.cookies.get("__session")?.value
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
+  // Protected routes
+  const protectedRoutes = ["/dashboard", "/play", "/duel"]
+  const authRoutes = ["/login", "/register"]
 
-  // Protect dashboard route
-  if (req.nextUrl.pathname.startsWith("/dashboard") && !session) {
+  const isProtectedRoute = protectedRoutes.some((route) => req.nextUrl.pathname.startsWith(route))
+  const isAuthRoute = authRoutes.includes(req.nextUrl.pathname)
+
+  // If accessing protected route without session, redirect to login
+  if (isProtectedRoute && !sessionToken) {
     return NextResponse.redirect(new URL("/login", req.url))
   }
 
-  // Redirect authenticated users away from auth pages
-  if ((req.nextUrl.pathname === "/login" || req.nextUrl.pathname === "/register") && session) {
+  // If accessing auth routes with session, redirect to dashboard
+  if (isAuthRoute && sessionToken) {
     return NextResponse.redirect(new URL("/dashboard", req.url))
   }
 
-  return res
+  return NextResponse.next()
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/login", "/register"],
+  matcher: ["/dashboard/:path*", "/play/:path*", "/duel/:path*", "/login", "/register"],
 }

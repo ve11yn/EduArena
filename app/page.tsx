@@ -71,7 +71,7 @@ export default function HomePage() {
           className="font-pixel text-4xl md:text-6xl font-bold text-cyan-400 mb-6 tracking-wider"
           style={{ textShadow: "0 0 20px rgba(0, 255, 255, 0.8)" }}
         >
-          ELO DUEL
+          EDUARENA
         </motion.h1>
 
         <motion.div

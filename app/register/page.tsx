@@ -5,7 +5,7 @@ import { useState } from "react"
 import { motion } from "framer-motion"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { createClient } from "@/lib/supabase/client"
+import { createUser } from "@/lib/firebase/auth"
 import { Eye, EyeOff, Mail, Lock, User, ArrowLeft } from "lucide-react"
 
 export default function RegisterPage() {
@@ -16,7 +16,6 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const router = useRouter()
-  const supabase = createClient()
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -24,34 +23,14 @@ export default function RegisterPage() {
     setError("")
 
     try {
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
-        password,
-      })
+      await createUser(email, password, username)
 
-      if (authError) {
-        setError(authError.message)
-        return
-      }
+      // Set session cookie for middleware
+      document.cookie = "__session=authenticated; path=/; max-age=86400"
 
-      if (authData.user) {
-        const { error: profileError } = await supabase.from("users").insert([
-          {
-            id: authData.user.id,
-            username,
-            elo: 400,
-          },
-        ])
-
-        if (profileError) {
-          setError("Failed to create user profile")
-          return
-        }
-
-        router.push("/dashboard")
-      }
-    } catch (err) {
-      setError("An unexpected error occurred")
+      router.push("/dashboard")
+    } catch (err: any) {
+      setError(err.message || "An unexpected error occurred")
     } finally {
       setLoading(false)
     }
