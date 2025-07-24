@@ -22,10 +22,11 @@ export default function DashboardPage() {
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const router = useRouter()
 
-  // Helper function to get display ELO
+  // Helper function to get display ELO (now returns average ELO)
   const getDisplayElo = (userElo: any) => {
     if (typeof userElo === 'number') return userElo // Legacy support
-    return getUserEloForSubject(userElo, userProfile?.preferredSubject)
+    // Return average ELO across all subjects
+    return Math.round((userElo.math + userElo.bahasa + userElo.english) / 3)
   }
 
   useEffect(() => {
@@ -150,19 +151,6 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
-          <button
-            onClick={handleLogout}
-            disabled={isLoggingOut}
-            className={`mt-4 md:mt-0 flex items-center gap-2 px-4 py-2 border-2 font-pixel text-xs tracking-wider transition-colors relative z-50 ${
-              isLoggingOut 
-                ? "bg-gray-600/80 border-gray-400 text-gray-300 cursor-not-allowed"
-                : "bg-red-600/80 border-red-400 text-red-300 hover:bg-red-600"
-            }`}
-            style={{ pointerEvents: 'auto' }}
-          >
-            <LogOut className={`w-4 h-4 ${isLoggingOut ? 'animate-spin' : ''}`} />
-            {isLoggingOut ? 'LOGGING OUT...' : 'LOGOUT'}
-          </button>
         </motion.div>
 
         {/* Stats Cards */}
@@ -176,17 +164,15 @@ export default function DashboardPage() {
             <div className="absolute inset-0 bg-gradient-to-r from-yellow-400/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
             <div className="flex items-center justify-between mb-4">
               <Trophy className="w-8 h-8 text-yellow-400" />
-              <span className="font-pixel text-xs text-yellow-400 tracking-wider">ELO RATING</span>
+              <span className="font-pixel text-xs text-yellow-400 tracking-wider">AVERAGE ELO</span>
             </div>
             <div className={`font-pixel text-3xl ${getEloColor(getDisplayElo(userProfile.elo))} mb-2`}>
               {getDisplayElo(userProfile.elo)}
             </div>
             <p className="font-terminal text-yellow-300 text-sm">{getRankTitle(getDisplayElo(userProfile.elo))}</p>
-            {userProfile.preferredSubject && (
-              <p className="font-terminal text-xs text-yellow-200 mt-1">
-                {userProfile.preferredSubject.toUpperCase()}
-              </p>
-            )}
+            <p className="font-terminal text-xs text-yellow-200 mt-1">
+              MATH: {userProfile.elo.math} | BAHASA: {userProfile.elo.bahasa} | ENGLISH: {userProfile.elo.english}
+            </p>
           </motion.div>
 
           <motion.div

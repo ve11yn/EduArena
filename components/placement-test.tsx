@@ -255,7 +255,7 @@ export default function PlacementTest({ onComplete, onCancel }: PlacementTestPro
               </div>
               <div className="bg-yellow-400/10 border border-yellow-400 p-4 mb-6">
                 <p className="font-terminal text-yellow-300 text-sm">
-                  ⏱️ 60 seconds per question | 🎯 100 points per correct answer
+                  ⏱️ 60 seconds per question | 🎯 +100 points for correct answers only | ⚠️ You can only take the test once
                 </p>
               </div>
             </div>

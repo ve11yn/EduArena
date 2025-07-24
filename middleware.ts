@@ -6,7 +6,7 @@ export async function middleware(req: NextRequest) {
   const sessionToken = req.cookies.get("__session")?.value
 
   // Protected routes
-  const protectedRoutes = ["/dashboard", "/play", "/duel"]
+  const protectedRoutes = ["/dashboard", "/play", "/duel", "/profile"]
   const authRoutes = ["/login", "/register"]
 
   const isProtectedRoute = protectedRoutes.some((route) => req.nextUrl.pathname.startsWith(route))
@@ -26,5 +26,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/play/:path*", "/duel/:path*", "/login", "/register"],
+  matcher: ["/dashboard/:path*", "/play/:path*", "/duel/:path*", "/profile/:path*", "/login", "/register"],
 }

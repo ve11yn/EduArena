@@ -1,10 +1,10 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { motion } from "framer-motion"
+import { motion, AnimatePresence } from "framer-motion"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
-import { signOutUser } from "@/lib/firebase/auth"
+import { signOutUser, updateUserProfile, updateUserEmail, updateUserPassword } from "@/lib/firebase/auth"
 import { getUserRank } from "@/lib/firebase/firestore"
 import { 
   User, 
@@ -23,10 +23,12 @@ import {
   Star,
   Zap,
   Shield,
-  Crown
+  Crown,
+  X
 } from "lucide-react"
 import Link from "next/link"
 import type { SubjectElo } from "@/lib/firebase/auth"
+import { DebugOverlay } from "@/components/ui/debug-overlay"
 
 export default function ProfilePage() {
   const { user, userProfile, loading: authLoading } = useAuth()
@@ -38,6 +40,17 @@ export default function ProfilePage() {
   })
   const [loading, setLoading] = useState(true)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editForm, setEditForm] = useState({
+    username: '',
+    email: '',
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  })
+  const [editLoading, setEditLoading] = useState(false)
+  const [editError, setEditError] = useState('')
+  const [editSuccess, setEditSuccess] = useState('')
   const router = useRouter()
 
   // Helper function to get overall ELO
@@ -109,9 +122,12 @@ export default function ProfilePage() {
   }
 
   useEffect(() => {
+    // Don't do anything while auth is still loading
     if (authLoading) return
 
-    if (!user) {
+    // Only redirect if we're sure there's no user and auth has finished loading
+    if (!user && !authLoading) {
+      console.log("No user found, redirecting to login...")
       router.push("/login")
       return
     }
@@ -147,10 +163,87 @@ export default function ProfilePage() {
     try {
       setIsLoggingOut(true)
       await signOutUser()
-      router.push("/login")
+      
+      // Clear any session cookies
+      document.cookie = "__session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT"
+      
+      // Clear local storage if needed
+      localStorage.removeItem('userSession')
+      
+      // The auth context will automatically detect the sign out and redirect
+      // But we'll add a small delay and manual redirect as fallback
+      setTimeout(() => {
+        router.push("/login")
+      }, 1000)
+      
     } catch (error) {
       console.error("Logout error:", error)
       setIsLoggingOut(false)
+      // Still try to redirect even if there's an error
+      router.push("/login")
+    }
+  }
+
+  const handleEditProfile = () => {
+    setEditForm({
+      username: userProfile?.username || '',
+      email: userProfile?.email || '',
+      currentPassword: '',
+      newPassword: '',
+      confirmPassword: ''
+    })
+    setEditError('')
+    setEditSuccess('')
+    setShowEditModal(true)
+  }
+
+  const handleSaveProfile = async () => {
+    if (!user || !userProfile) return
+
+    setEditLoading(true)
+    setEditError('')
+    setEditSuccess('')
+
+    try {
+      // Validate form
+      if (editForm.newPassword && editForm.newPassword !== editForm.confirmPassword) {
+        throw new Error("New passwords don't match")
+      }
+
+      if (editForm.newPassword && editForm.newPassword.length < 6) {
+        throw new Error("Password must be at least 6 characters")
+      }
+
+      if (editForm.newPassword && !editForm.currentPassword) {
+        throw new Error("Current password is required to change password")
+      }
+
+      // Update username if changed
+      if (editForm.username !== userProfile.username) {
+        await updateUserProfile(user.uid, { username: editForm.username })
+      }
+
+      // Email changes are temporarily disabled
+      // Skip email update to avoid Firebase verification error
+
+      // Update password if provided
+      if (editForm.newPassword) {
+        await updateUserPassword(editForm.currentPassword, editForm.newPassword)
+      }
+
+      setEditSuccess('Profile updated successfully!')
+      
+      // Close modal after 2 seconds
+      setTimeout(() => {
+        setShowEditModal(false)
+        window.location.reload() // Refresh to show updated data
+      }, 2000)
+
+    } catch (error: any) {
+      console.error("Profile update error:", error)
+      setEditError(error.message || 'Failed to update profile')
+    } finally {
+      setEditLoading(false)
     }
   }
 
@@ -173,6 +266,7 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen p-4">
+      {/* <DebugOverlay enabled={process.env.NODE_ENV === 'development'} /> */}
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <motion.div
@@ -180,45 +274,46 @@ export default function ProfilePage() {
           animate={{ opacity: 1, y: 0 }}
           className="bg-slate-800/80 border-2 border-cyan-400 p-6 mb-6"
         >
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
-            <div className="flex items-center gap-4 mb-4 md:mb-0">
-              <div className="w-16 h-16 bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center text-black font-pixel text-2xl">
-                {userProfile.username[0]}
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="flex items-center gap-4 min-w-0 flex-1">
+              <div className="w-16 h-16 bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center text-black font-pixel text-2xl flex-shrink-0">
+                {userProfile.username[0].toUpperCase()}
               </div>
-              <div>
-                <h1 className="font-pixel text-2xl text-cyan-400 mb-1">
+              <div className="min-w-0 flex-1">
+                <h1 className="font-pixel text-2xl text-cyan-400 mb-1 truncate">
                   {userProfile.username.toUpperCase()}
                 </h1>
-                <div className="flex items-center gap-2 text-cyan-300 font-terminal text-sm">
-                  <Mail className="w-4 h-4" />
-                  {userProfile.email}
+                <div className="flex items-center gap-2 text-cyan-300 font-terminal text-sm truncate">
+                  <Mail className="w-4 h-4 flex-shrink-0" />
+                  <span className="truncate">{userProfile.email}</span>
                 </div>
                 <div className="flex items-center gap-2 text-cyan-300 font-terminal text-sm mt-1">
-                  <Calendar className="w-4 h-4" />
+                  <Calendar className="w-4 h-4 flex-shrink-0" />
                   Joined {formatDate(userProfile.createdAt)}
                 </div>
               </div>
             </div>
-            <div className="flex gap-2">
-              <Link href="/dashboard">
+            <div className="flex flex-col sm:flex-row gap-2 relative z-50 flex-shrink-0">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleEditProfile}
+                className="bg-purple-600/80 border-2 border-purple-400 text-purple-300 font-pixel px-3 py-1 text-xs hover:bg-purple-600 transition-colors relative z-50"
+                style={{ pointerEvents: 'auto', position: 'relative', zIndex: 50 }}
+              >
+                <Edit className="w-3 h-3 inline mr-1" />
+                EDIT PROFILE
+              </motion.button>
+              <Link href="/dashboard" className="relative z-50">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  className="retro-button font-pixel text-slate-900 px-4 py-2 text-sm"
+                  className="retro-button font-pixel text-slate-900 px-3 py-1 text-xs relative z-50 w-full sm:w-auto"
+                  style={{ pointerEvents: 'auto', position: 'relative', zIndex: 50 }}
                 >
                   ← DASHBOARD
                 </motion.button>
               </Link>
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={handleLogout}
-                disabled={isLoggingOut}
-                className="bg-red-600/80 border-2 border-red-400 text-red-300 font-pixel px-4 py-2 text-sm hover:bg-red-600 transition-colors disabled:opacity-50"
-              >
-                <LogOut className="w-4 h-4 inline mr-2" />
-                {isLoggingOut ? 'LOGGING OUT...' : 'LOGOUT'}
-              </motion.button>
             </div>
           </div>
         </motion.div>
@@ -250,7 +345,7 @@ export default function ProfilePage() {
               <div className="font-terminal text-xs text-slate-400">GLOBAL</div>
             </div>
             <div className="bg-slate-900/50 border border-slate-600 p-4 text-center">
-              <div className="font-pixel text-2xl text-green-400">
+              <div className="font-pixel text-lg text-slate-300">
                 {userProfile.preferredSubject?.toUpperCase() || 'NONE'}
               </div>
               <div className="font-terminal text-xs text-cyan-300 mt-1">PREFERRED</div>
@@ -463,53 +558,207 @@ export default function ProfilePage() {
             <Edit className="w-6 h-6 text-cyan-400" />
             <h2 className="font-pixel text-xl text-cyan-400">ACTIONS</h2>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 relative z-50">
             {!userProfile.placementTestCompleted && (
-              <Link href="/placement-test">
+              <Link href="/placement-test" className="relative z-50">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  className="w-full bg-yellow-600/80 border-2 border-yellow-400 text-yellow-300 font-pixel px-6 py-3 hover:bg-yellow-600 transition-colors"
+                  className="w-full bg-yellow-600/80 border-2 border-yellow-400 text-yellow-300 font-pixel px-6 py-3 hover:bg-yellow-600 transition-colors relative z-50"
+                  style={{ pointerEvents: 'auto', position: 'relative', zIndex: 50 }}
                 >
                   <Award className="w-5 h-5 inline mr-2" />
                   TAKE PLACEMENT TEST
                 </motion.button>
               </Link>
             )}
-            <Link href="/leaderboard">
+            <Link href="/leaderboard" className="relative z-50">
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                className="w-full bg-cyan-600/80 border-2 border-cyan-400 text-cyan-300 font-pixel px-6 py-3 hover:bg-cyan-600 transition-colors"
+                className="w-full bg-cyan-600/80 border-2 border-cyan-400 text-cyan-300 font-pixel px-6 py-3 hover:bg-cyan-600 transition-colors relative z-50"
+                style={{ pointerEvents: 'auto', position: 'relative', zIndex: 50 }}
               >
                 <TrendingUp className="w-5 h-5 inline mr-2" />
                 VIEW LEADERBOARD
               </motion.button>
             </Link>
-            <Link href="/play">
+            <Link href="/play" className="relative z-50">
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                className="w-full bg-green-600/80 border-2 border-green-400 text-green-300 font-pixel px-6 py-3 hover:bg-green-600 transition-colors"
+                className="w-full bg-green-600/80 border-2 border-green-400 text-green-300 font-pixel px-6 py-3 hover:bg-green-600 transition-colors relative z-50"
+                style={{ pointerEvents: 'auto', position: 'relative', zIndex: 50 }}
               >
                 <Trophy className="w-5 h-5 inline mr-2" />
                 PLAY GAME
               </motion.button>
             </Link>
             {userProfile.placementTestCompleted && (
-              <Link href="/placement-test">
+              <Link href="/placement-test" className="relative z-50">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
-                  className="w-full bg-purple-600/80 border-2 border-purple-400 text-purple-300 font-pixel px-6 py-3 hover:bg-purple-600 transition-colors"
+                  className="w-full bg-purple-600/80 border-2 border-purple-400 text-purple-300 font-pixel px-6 py-3 hover:bg-purple-600 transition-colors relative z-50"
+                  style={{ pointerEvents: 'auto', position: 'relative', zIndex: 50 }}
                 >
                   <Clock className="w-5 h-5 inline mr-2" />
                   RETAKE PLACEMENT TEST
                 </motion.button>
               </Link>
             )}
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleLogout}
+              disabled={isLoggingOut}
+              className="w-full bg-red-600/80 border-2 border-red-400 text-red-300 font-pixel px-6 py-3 hover:bg-red-600 transition-colors disabled:opacity-50 relative z-50"
+              style={{ pointerEvents: 'auto', position: 'relative', zIndex: 50 }}
+            >
+              <LogOut className="w-5 h-5 inline mr-2" />
+              {isLoggingOut ? 'LOGGING OUT...' : 'LOGOUT'}
+            </motion.button>
           </div>
         </motion.div>
+
+        {/* Edit Profile Modal */}
+        <AnimatePresence>
+          {showEditModal && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-[100]"
+              onClick={() => setShowEditModal(false)}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="bg-slate-800 border-2 border-cyan-400 p-6 max-w-md w-full max-h-[90vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <Edit className="w-6 h-6 text-cyan-400" />
+                    <h2 className="font-pixel text-xl text-cyan-400">EDIT PROFILE</h2>
+                  </div>
+                  <button
+                    onClick={() => setShowEditModal(false)}
+                    className="text-slate-400 hover:text-cyan-400 transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {editError && (
+                  <div className="bg-red-900/50 border border-red-400 p-3 mb-4">
+                    <p className="font-terminal text-red-300 text-sm">{editError}</p>
+                  </div>
+                )}
+
+                {editSuccess && (
+                  <div className="bg-green-900/50 border border-green-400 p-3 mb-4">
+                    <p className="font-terminal text-green-300 text-sm">{editSuccess}</p>
+                  </div>
+                )}
+
+                <div className="space-y-4">
+                  {/* Username */}
+                  <div>
+                    <label className="block font-pixel text-cyan-400 text-sm mb-2">USERNAME</label>
+                    <input
+                      type="text"
+                      value={editForm.username}
+                      onChange={(e) => setEditForm({...editForm, username: e.target.value})}
+                      className="w-full bg-slate-900 border-2 border-slate-600 text-cyan-300 font-terminal px-3 py-2 focus:border-cyan-400 focus:outline-none"
+                      placeholder="Enter new username"
+                    />
+                  </div>
+
+                  {/* Email */}
+                  <div>
+                    <label className="block font-pixel text-cyan-400 text-sm mb-2">
+                      EMAIL
+
+                    </label>
+                    <input
+                      type="email"
+                      value={userProfile.email}
+                      disabled
+                      className="w-full bg-slate-800 border-2 border-slate-700 text-slate-400 font-terminal px-3 py-2 cursor-not-allowed"
+                      placeholder="Email changes temporarily disabled"
+                    />
+                  </div>
+
+                  {/* Current Password */}
+                  <div>
+                    <label className="block font-pixel text-cyan-400 text-sm mb-2">
+                      CURRENT PASSWORD
+                      <span className="text-yellow-400 text-xs ml-2">(Required for password changes)</span>
+                    </label>
+                    <input
+                      type="password"
+                      value={editForm.currentPassword}
+                      onChange={(e) => setEditForm({...editForm, currentPassword: e.target.value})}
+                      className="w-full bg-slate-900 border-2 border-slate-600 text-cyan-300 font-terminal px-3 py-2 focus:border-cyan-400 focus:outline-none"
+                      placeholder="Enter current password"
+                    />
+                  </div>
+
+                  {/* New Password */}
+                  <div>
+                    <label className="block font-pixel text-cyan-400 text-sm mb-2">
+                      NEW PASSWORD
+                    </label>
+                    <input
+                      type="password"
+                      value={editForm.newPassword}
+                      onChange={(e) => setEditForm({...editForm, newPassword: e.target.value})}
+                      className="w-full bg-slate-900 border-2 border-slate-600 text-cyan-300 font-terminal px-3 py-2 focus:border-cyan-400 focus:outline-none"
+                      placeholder="Enter new password (min 6 chars)"
+                    />
+                  </div>
+
+                  {/* Confirm Password */}
+                  {editForm.newPassword && (
+                    <div>
+                      <label className="block font-pixel text-cyan-400 text-sm mb-2">CONFIRM NEW PASSWORD</label>
+                      <input
+                        type="password"
+                        value={editForm.confirmPassword}
+                        onChange={(e) => setEditForm({...editForm, confirmPassword: e.target.value})}
+                        className="w-full bg-slate-900 border-2 border-slate-600 text-cyan-300 font-terminal px-3 py-2 focus:border-cyan-400 focus:outline-none"
+                        placeholder="Confirm new password"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-3 mt-6">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleSaveProfile}
+                    disabled={editLoading}
+                    className="flex-1 bg-green-600/80 border-2 border-green-400 text-green-300 font-pixel px-4 py-2 text-sm hover:bg-green-600 transition-colors disabled:opacity-50"
+                  >
+                    {editLoading ? 'SAVING...' : 'SAVE CHANGES'}
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setShowEditModal(false)}
+                    disabled={editLoading}
+                    className="bg-slate-600/80 border-2 border-slate-400 text-slate-300 font-pixel px-4 py-2 text-sm hover:bg-slate-600 transition-colors disabled:opacity-50"
+                  >
+                    CANCEL
+                  </motion.button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   )
