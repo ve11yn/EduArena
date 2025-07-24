@@ -1,8 +1,14 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { adminAuth } from "@/lib/firebase/admin"
 import { getDuelById, updateDuel, getUserById, updateUsersElo, getUserEloForSubject } from "@/lib/firebase/firestore"
 import { calculateEloRating } from "@/lib/elo"
-import type { SubjectElo } from "@/lib/types"
+import { generateBotAnswer } from "@/lib/game-modes"
+
+interface DuelUpdateData {
+  player1Answer?: string;
+  player1Time?: number;
+  player2Answer?: string;
+  player2Time?: number;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,19 +18,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    // Verify Firebase Auth token
-    const authHeader = request.headers.get("authorization")
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    let currentUserId: string
-    try {
-      const token = authHeader.split("Bearer ")[1]
-      const decodedToken = await adminAuth.verifyIdToken(token)
-      currentUserId = decodedToken.uid
-    } catch (error) {
-      return NextResponse.json({ error: "Invalid token" }, { status: 401 })
+    // Get user ID from header
+    const userId = request.headers.get("x-user-id")
+    if (!userId) {
+      return NextResponse.json({ error: "User ID required" }, { status: 401 })
     }
 
     // Get current duel
@@ -34,8 +31,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Determine if user is player1 or player2
-    const isPlayer1 = duel.player1Id === currentUserId
-    const isPlayer2 = duel.player2Id === currentUserId
+    const isPlayer1 = duel.player1Id === userId
+    const isPlayer2 = duel.player2Id === userId
 
     if (!isPlayer1 && !isPlayer2) {
       return NextResponse.json({ error: "Not authorized for this duel" }, { status: 403 })
@@ -46,7 +43,32 @@ export async function POST(request: NextRequest) {
       ? { player1Answer: answer, player1Time: timeElapsed }
       : { player2Answer: answer, player2Time: timeElapsed }
 
+   
     await updateDuel(duelId, updateData)
+
+    // Handle bot response for training mode
+    if (duel.isTraining && isPlayer1) {
+      // Generate bot answer after a delay
+      const botResponseTime = Math.random() * 5000 + 3000 // 3-8 seconds
+
+      setTimeout(async () => {
+        if(!duel.quizData){
+          throw new Error("error")
+        }
+        const currentQuestion = duel.quizData[duel.currentQuestionIndex];
+        const botAnswer = generateBotAnswer(currentQuestion.correct_answer, 0.75) // 75% accuracy
+        await updateDuel(duelId, {
+          player2Answers: [botAnswer.toString()],
+          player2Time: [botResponseTime],
+        })
+      }, botResponseTime)
+
+      return NextResponse.json({
+        success: true,
+        completed: false,
+        waitingForBot: true,
+      })
+    }
 
     // Get updated duel to check if both players have answered
     const updatedDuel = await getDuelById(duelId)
@@ -55,7 +77,7 @@ export async function POST(request: NextRequest) {
     }
 
     // If both players have answered, determine winner and update ELO
-    if (updatedDuel.player1Answer !== undefined && updatedDuel.player2Answer !== undefined) {
+    if (updatedDuel.player1Answers !== undefined && updatedDuel.player2Answers !== undefined) {
       const result = await processDuelResult(updatedDuel)
       return NextResponse.json({
         success: true,
@@ -78,9 +100,6 @@ async function processDuelResult(duel: any) {
   const quizData = duel.quizData
   const correctAnswer = quizData.correct_answer
 
-  // Get the subject from the duel
-  const subject = duel.subject
-
   // Check correctness
   const player1Correct = Number.parseInt(duel.player1Answer) === correctAnswer
   const player2Correct = Number.parseInt(duel.player2Answer) === correctAnswer
@@ -90,12 +109,10 @@ async function processDuelResult(duel: any) {
   let player2Result = 0 // loss
 
   if (player1Correct && !player2Correct) {
-    // Player 1 wins
     winnerId = duel.player1Id
     player1Result = 1 // win
     player2Result = 0 // loss
   } else if (!player1Correct && player2Correct) {
-    // Player 2 wins
     winnerId = duel.player2Id
     player1Result = 0 // loss
     player2Result = 1 // win
@@ -115,22 +132,6 @@ async function processDuelResult(duel: any) {
       player2Result = 0.5
     }
   }
-  // If both wrong, both lose (already set to 0)
-
-  // Get current ELO ratings for the specific subject
-  const player1 = await getUserById(duel.player1Id)
-  const player2 = await getUserById(duel.player2Id!)
-
-  if (!player1 || !player2) {
-    throw new Error("Failed to get player data")
-  }
-
-  const player1CurrentElo = getUserEloForSubject(player1.elo, subject)
-  const player2CurrentElo = getUserEloForSubject(player2.elo, subject)
-
-  // Calculate new ELO ratings
-  const newPlayer1Elo = calculateEloRating(player1CurrentElo, player2CurrentElo, player1Result)
-  const newPlayer2Elo = calculateEloRating(player2CurrentElo, player1CurrentElo, player2Result)
 
   // Update duel status
   await updateDuel(duel.id, {
@@ -139,8 +140,39 @@ async function processDuelResult(duel: any) {
     completedAt: new Date(),
   })
 
-  // Update ELO ratings
-  await updateUsersElo(duel.player1Id, duel.player2Id, subject, newPlayer1Elo, newPlayer2Elo)
+  let eloChanges = null
+
+  // Only update ELO for PvP matches
+  if (!duel.isTraining && !duel.player2Id?.startsWith("bot_")) {
+    const player1 = await getUserById(duel.player1Id)
+    const player2 = await getUserById(duel.player2Id!)
+
+    if (player1 && player2) {
+      const subject = duel.subject
+      const player1CurrentElo = getUserEloForSubject(player1.elo, subject)
+      const player2CurrentElo = getUserEloForSubject(player2.elo, subject)
+
+      // Calculate new ELO ratings
+      const newPlayer1Elo = calculateEloRating(player1CurrentElo, player2CurrentElo, player1Result)
+      const newPlayer2Elo = calculateEloRating(player2CurrentElo, player1CurrentElo, player2Result)
+
+      // Update ELO ratings
+      await updateUsersElo(duel.player1Id, duel.player2Id, subject, newPlayer1Elo, newPlayer2Elo)
+
+      eloChanges = {
+        player: {
+          oldElo: player1CurrentElo,
+          newElo: newPlayer1Elo,
+          change: newPlayer1Elo - player1CurrentElo,
+        },
+        opponent: {
+          oldElo: player2CurrentElo,
+          newElo: newPlayer2Elo,
+          change: newPlayer2Elo - player2CurrentElo,
+        },
+      }
+    }
+  }
 
   return {
     winnerId,
@@ -148,17 +180,7 @@ async function processDuelResult(duel: any) {
     player2Correct,
     correctAnswer,
     explanation: quizData.explanation,
-    eloChanges: {
-      player: {
-        oldElo: player1CurrentElo,
-        newElo: newPlayer1Elo,
-        change: newPlayer1Elo - player1CurrentElo,
-      },
-      opponent: {
-        oldElo: player2CurrentElo,
-        newElo: newPlayer2Elo,
-        change: newPlayer2Elo - player2CurrentElo,
-      },
-    },
+    eloChanges,
+    isTraining: duel.isTraining || false,
   }
 }

@@ -175,8 +175,6 @@
 ::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(45deg, #ff00ff, #ffff00);
 }
-
-/* Pixel art scaling */
 .pixel-art {
   image-rendering: -moz-crisp-edges;
   image-rendering: -webkit-crisp-edges;
@@ -184,7 +182,6 @@
   image-rendering: crisp-edges;
 }
 
-/* Smooth animations */
 * {
   transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow,
     transform, filter, backdrop-filter;

@@ -34,19 +34,26 @@ export interface QuizQuestion {
   explanation?: string
 }
 
+
+
 export interface Duel {
   id: string
   player1Id: string
   player2Id?: string
   subject: keyof SubjectElo
-  difficulty: string
-  quizData?: QuizQuestion
-  player1Answer?: string
-  player2Answer?: string
-  player1Time?: number
-  player2Time?: number
+  difficulty?: string // Optional for PvP
+  quizData?: QuizQuestion[] // Array of questions
+  currentQuestionIndex: number
+  player1Answers?: string[]
+  player2Answers?: string[]
+  player1Time?: number[]
+  player2Time?: number[] 
+  player1Score: number
+  player2Score: number
   winnerId?: string
   status: "waiting" | "in_progress" | "completed" | "cancelled"
+  isTraining?: boolean
+  maxQuestions: number
   createdAt: Date
   startedAt?: Date
   completedAt?: Date
@@ -71,6 +78,26 @@ export const createUserProfile = async (uid: string, userData: Omit<User, "id">)
 
 export const getUserById = async (uid: string): Promise<User | null> => {
   try {
+    // Handle bot users
+    if (uid.startsWith("bot_")) {
+      const difficulty = uid.replace("bot_", "") as "beginner" | "intermediate" | "advanced"
+      const botElos = { beginner: 450, intermediate: 650, advanced: 850 }
+      const botNames = { beginner: "ROOKIE_BOT", intermediate: "WARRIOR_BOT", advanced: "MASTER_BOT" }
+
+      return {
+        id: uid,
+        username: botNames[difficulty],
+        email: `${uid}@bot.local`,
+        elo: {
+          math: botElos[difficulty],
+          bahasa: botElos[difficulty],
+          english: botElos[difficulty],
+        },
+        placementTestCompleted: true,
+        createdAt: new Date(),
+      }
+    }
+
     const userDoc = await getDoc(doc(db, "users", uid))
     if (userDoc.exists()) {
       const data = userDoc.data()
@@ -89,7 +116,7 @@ export const getUserById = async (uid: string): Promise<User | null> => {
 
 export const getAllUsers = async (): Promise<User[]> => {
   try {
-    const usersQuery = query(collection(db, "users"), orderBy("elo", "desc"))
+    const usersQuery = query(collection(db, "users"), orderBy("createdAt", "desc"))
     const querySnapshot = await getDocs(usersQuery)
     return querySnapshot.docs.map((doc) => {
       const data = doc.data()
@@ -109,7 +136,7 @@ export const updateUserElo = async (uid: string, subject: keyof SubjectElo, newE
   try {
     const userRef = doc(db, "users", uid)
     const userDoc = await getDoc(userRef)
-    
+
     if (userDoc.exists()) {
       const userData = userDoc.data() as User
       const updatedElo = { ...userData.elo, [subject]: newElo }
@@ -176,23 +203,19 @@ export const getDuelWithUsers = async (duelId: string): Promise<DuelWithUsers | 
   }
 }
 
-export const findWaitingDuel = async (
-  subject: keyof SubjectElo, 
-  difficulty: string, 
-  currentUserId: string, 
-  userElo: number,
-  subjectForElo: keyof SubjectElo
-) => {
+export const findWaitingDuel = async (subject: keyof SubjectElo, currentUserId: string, userElo: number) => {
   try {
     const duelsQuery = query(
       collection(db, "duels"),
       where("status", "==", "waiting"),
       where("subject", "==", subject),
-      where("difficulty", "==", difficulty),
+      where("isTraining", "==", false),
       orderBy("createdAt", "asc"),
     )
 
     const querySnapshot = await getDocs(duelsQuery)
+    let bestMatch = null
+    let smallestEloDiff = Number.POSITIVE_INFINITY
 
     for (const docSnapshot of querySnapshot.docs) {
       const duelData = docSnapshot.data()
@@ -201,9 +224,13 @@ export const findWaitingDuel = async (
       // Get player1 data to check ELO for the specific subject
       const player1 = await getUserById(duelData.player1Id)
       if (player1) {
-        const player1Elo = player1.elo[subjectForElo]
-        if (Math.abs(player1Elo - userElo) <= 100) {
-          return {
+        const player1Elo = getUserEloForSubject(player1.elo, subject)
+        const eloDiff = Math.abs(player1Elo - userElo)
+
+        // Find the closest ELO match
+        if (eloDiff < smallestEloDiff) {
+          smallestEloDiff = eloDiff
+          bestMatch = {
             id: docSnapshot.id,
             ...duelData,
             createdAt: duelData.createdAt.toDate(),
@@ -212,7 +239,7 @@ export const findWaitingDuel = async (
       }
     }
 
-    return null
+    return bestMatch
   } catch (error) {
     console.error("Error finding waiting duel:", error)
     return null
@@ -255,13 +282,20 @@ export const subscribeToDuel = (duelId: string, callback: (duel: Duel | null) =>
 }
 
 export const updateUsersElo = async (
-  player1Id: string, 
-  player2Id: string, 
+  player1Id: string,
+  player2Id: string,
   subject: keyof SubjectElo,
-  player1Elo: number, 
-  player2Elo: number
+  player1Elo: number,
+  player2Elo: number,
 ) => {
   try {
+    // Don't update ELO for bot players
+    if (player2Id.startsWith("bot_")) {
+      // Only update player1 ELO
+      await updateUserElo(player1Id, subject, player1Elo)
+      return
+    }
+
     const batch = writeBatch(db)
 
     // Get current user data to update specific subject ELO
@@ -285,12 +319,12 @@ export const updateUsersElo = async (
   }
 }
 
-export const getTopUsers = async (limit: number = 10, subject?: keyof SubjectElo): Promise<User[]> => {
+export const getTopUsers = async (limit = 10, subject?: keyof SubjectElo): Promise<User[]> => {
   try {
     // Get all users and sort by the specified subject or overall ELO in memory
     const usersQuery = query(collection(db, "users"))
     const querySnapshot = await getDocs(usersQuery)
-    
+
     const users = querySnapshot.docs.map((doc) => {
       const data = doc.data()
       return {
@@ -322,7 +356,7 @@ export const getUserRank = async (userId: string, subject?: keyof SubjectElo): P
     // Get all users and calculate rank in memory
     const usersQuery = query(collection(db, "users"))
     const querySnapshot = await getDocs(usersQuery)
-    
+
     const users = querySnapshot.docs.map((doc) => {
       const data = doc.data()
       return {
@@ -333,9 +367,9 @@ export const getUserRank = async (userId: string, subject?: keyof SubjectElo): P
     })
 
     const userElo = subject ? user.elo[subject] : getUserEloForSubject(user.elo)
-    
+
     // Count users with higher ELO
-    const higherEloUsers = users.filter(u => {
+    const higherEloUsers = users.filter((u) => {
       const uElo = subject ? u.elo[subject] : getUserEloForSubject(u.elo)
       return uElo > userElo
     })
@@ -347,7 +381,7 @@ export const getUserRank = async (userId: string, subject?: keyof SubjectElo): P
   }
 }
 
-export const subscribeToLeaderboard = (callback: (users: User[]) => void, limit: number = 10, subject?: keyof SubjectElo) => {
+export const subscribeToLeaderboard = (callback: (users: User[]) => void, limit = 10, subject?: keyof SubjectElo) => {
   const usersQuery = query(collection(db, "users"))
 
   return onSnapshot(usersQuery, (querySnapshot) => {
@@ -375,11 +409,11 @@ export const getLeaderboardStats = async (subject?: keyof SubjectElo) => {
   try {
     const usersQuery = query(collection(db, "users"))
     const querySnapshot = await getDocs(usersQuery)
-    
+
     const totalPlayers = querySnapshot.docs.length
     let totalElo = 0
     let highestElo = 0
-    
+
     querySnapshot.docs.forEach((doc) => {
       const user = doc.data() as User
       const userElo = subject ? user.elo[subject] : getUserEloForSubject(user.elo)
@@ -388,18 +422,18 @@ export const getLeaderboardStats = async (subject?: keyof SubjectElo) => {
         highestElo = userElo
       }
     })
-    
+
     return {
       totalPlayers,
       averageElo: totalPlayers > 0 ? Math.round(totalElo / totalPlayers) : 0,
-      highestElo
+      highestElo,
     }
   } catch (error) {
     console.error("Error getting leaderboard stats:", error)
     return {
       totalPlayers: 0,
       averageElo: 0,
-      highestElo: 0
+      highestElo: 0,
     }
   }
 }

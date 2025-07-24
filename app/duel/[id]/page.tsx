@@ -5,7 +5,8 @@ import { motion, AnimatePresence } from "framer-motion"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { getDuelWithUsers, subscribeToDuel, getUserEloForSubject } from "@/lib/firebase/firestore"
-import { Clock, User, Trophy, Zap } from "lucide-react"
+import { submitAnswer } from "@/lib/duel-service"
+import { Clock, User, Trophy, Zap, Bot, ArrowRight } from "lucide-react"
 import type { DuelWithUsers, QuizQuestion } from "@/lib/firebase/firestore"
 
 interface DuelPageProps {
@@ -22,6 +23,9 @@ export default function DuelPage({ params }: DuelPageProps) {
   const [loading, setLoading] = useState(true)
   const [result, setResult] = useState<any>(null)
   const [startTime, setStartTime] = useState<number | null>(null)
+  const [waitingForBot, setWaitingForBot] = useState(false)
+  const [error, setError] = useState("")
+  const [showNextQuestion, setShowNextQuestion] = useState(false)
 
   const { user, userProfile } = useAuth()
   const router = useRouter()
@@ -43,12 +47,13 @@ export default function DuelPage({ params }: DuelPageProps) {
       }
     } catch (error) {
       console.error("Error fetching duel:", error)
-      router.push("/dashboard")
+      setError("Failed to load duel")
+      setTimeout(() => router.push("/dashboard"), 3000)
     }
   }, [params.id, router, startTime])
 
   useEffect(() => {
-    if (!user) {
+    if (!user || !userProfile) {
       router.push("/login")
       return
     }
@@ -60,6 +65,19 @@ export default function DuelPage({ params }: DuelPageProps) {
       if (updatedDuel) {
         setDuel((prev) => {
           if (!prev) return null
+
+          // Check if question index changed (next question)
+          if (prev.currentQuestionIndex !== updatedDuel.currentQuestionIndex) {
+            setShowNextQuestion(true)
+            setSubmitted(false)
+            setSelectedAnswer(null)
+            setWaitingForBot(false)
+            setStartTime(Date.now())
+
+            // Hide next question indicator after 2 seconds
+            setTimeout(() => setShowNextQuestion(false), 2000)
+          }
+
           return {
             ...updatedDuel,
             player1: prev.player1,
@@ -75,7 +93,7 @@ export default function DuelPage({ params }: DuelPageProps) {
     })
 
     return () => unsubscribe()
-  }, [user, router, fetchDuel, params.id, startTime])
+  }, [user, userProfile, router, fetchDuel, params.id, startTime])
 
   // Timer countdown
   useEffect(() => {
@@ -95,41 +113,42 @@ export default function DuelPage({ params }: DuelPageProps) {
   }, [startTime, submitted, timeLeft])
 
   const handleSubmitAnswer = async () => {
-    if (submitted || !startTime || !user) return
+    if (submitted || !startTime || !userProfile) return
 
     setSubmitted(true)
+    setError("")
     const timeElapsed = Date.now() - startTime
 
     try {
-      const token = await user.getIdToken()
+      const result = await submitAnswer(params.id, selectedAnswer?.toString() || "0", timeElapsed, userProfile.id)
 
-      const response = await fetch("/api/submit-answer", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          duelId: params.id,
-          answer: selectedAnswer?.toString() || "0",
-          timeElapsed,
-        }),
-      })
-
-      const data = await response.json()
-      if (data.success && data.completed) {
-        setResult(data.result)
+      if (result.success) {
+        if (result.waitingForBot) {
+          setWaitingForBot(true)
+        } else if (result.nextQuestion) {
+          // Will be handled by the real-time listener
+        } else if (result.completed && result.result) {
+          setResult(result.result)
+        }
+      } else {
+        setError(result.error || "Failed to submit answer")
+        setSubmitted(false)
       }
     } catch (error) {
       console.error("Submit answer error:", error)
+      setError("Failed to submit answer")
+      setSubmitted(false)
     }
   }
 
   const isCurrentUserPlayer1 = userProfile?.id === duel?.player1Id
   const opponent = isCurrentUserPlayer1 ? duel?.player2 : duel?.player1
   const hasOpponentAnswered = isCurrentUserPlayer1
-    ? duel?.player2Answer !== undefined
-    : duel?.player1Answer !== undefined
+    ? duel?.player2Answers && duel?.player2Answers[duel.currentQuestionIndex] !== undefined
+    : duel?.player1Answers && duel?.player1Answers[duel.currentQuestionIndex] !== undefined
+
+  const isTrainingMode = duel?.isTraining || false
+  const isBot = opponent?.id?.startsWith("bot_") || false
 
   if (loading) {
     return (
@@ -137,9 +156,26 @@ export default function DuelPage({ params }: DuelPageProps) {
         <motion.div
           animate={{ rotate: 360 }}
           transition={{ duration: 1, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
-          className="w-12 h-12 border-4 border-cyan-400 border-t-transparent"
+          className="w-12 h-12 border-4 border-cyan-400 border-t-transparent rounded-full"
         />
         <span className="ml-4 font-pixel text-cyan-400 text-lg">LOADING BATTLE...</span>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center bg-red-900/80 border-2 border-red-400 p-8 max-w-md">
+          <h1 className="font-pixel text-xl text-red-400 mb-4">ERROR</h1>
+          <p className="font-terminal text-red-300 mb-4">{error}</p>
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="retro-button font-pixel text-slate-900 px-6 py-3"
+          >
+            RETURN TO DASHBOARD
+          </button>
+        </div>
       </div>
     )
   }
@@ -160,8 +196,8 @@ export default function DuelPage({ params }: DuelPageProps) {
     )
   }
 
-  // Waiting for opponent
-  if (duel.status === "waiting" || !duel.player2) {
+  // Waiting for opponent (PvP only)
+  if (duel.status === "waiting" || (!duel.player2 && !isTrainingMode)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <motion.div
@@ -176,7 +212,8 @@ export default function DuelPage({ params }: DuelPageProps) {
           />
           <h1 className="font-pixel text-xl text-cyan-400 mb-4">SEARCHING FOR OPPONENT</h1>
           <p className="font-terminal text-cyan-300 mb-6">
-            Topic: {duel.subject.toUpperCase()} • {duel.difficulty.toUpperCase()}
+            Topic: {duel.subject.toUpperCase()}
+            {duel.difficulty && ` • ${duel.difficulty.toUpperCase()}`}
           </p>
           <div className="w-full h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent"></div>
         </motion.div>
@@ -194,16 +231,33 @@ export default function DuelPage({ params }: DuelPageProps) {
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="bg-slate-800/90 border-2 border-cyan-400 p-8 max-w-2xl w-full"
+          className="bg-slate-800/90 border-2 border-cyan-400 p-8 max-w-3xl w-full"
         >
           <div className="text-center mb-8">
+            {/* Game Mode Indicator */}
+            <div className="flex items-center justify-center gap-2 mb-4">
+              {isTrainingMode ? (
+                <>
+                  <Bot className="w-5 h-5 text-purple-400" />
+                  <span className="font-pixel text-sm text-purple-400">TRAINING MODE</span>
+                </>
+              ) : (
+                <>
+                  <Trophy className="w-5 h-5 text-yellow-400" />
+                  <span className="font-pixel text-sm text-yellow-400">RANKED MATCH</span>
+                </>
+              )}
+            </div>
+
             <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.2, type: "spring" }}>
               {isWinner ? (
                 <Trophy className="w-16 h-16 text-yellow-400 mx-auto mb-4" />
               ) : isDraw ? (
                 <Zap className="w-16 h-16 text-cyan-400 mx-auto mb-4" />
               ) : (
-                <div className="w-16 h-16 bg-red-400 mx-auto mb-4 flex items-center justify-center text-2xl">💀</div>
+                <div className="w-16 h-16 bg-red-400 mx-auto mb-4 flex items-center justify-center text-2xl rounded">
+                  💀
+                </div>
               )}
             </motion.div>
 
@@ -211,42 +265,77 @@ export default function DuelPage({ params }: DuelPageProps) {
               {isWinner ? "VICTORY!" : isDraw ? "DRAW!" : "DEFEAT!"}
             </h1>
 
-            <div className="grid grid-cols-2 gap-6 mb-6">
-              <div className={`p-4 border-2 ${isCurrentUserPlayer1 ? "border-cyan-400" : "border-slate-600"}`}>
-                <h3 className="font-pixel text-sm text-cyan-400 mb-2">{duel.player1.username}</h3>
-                <p className="font-terminal text-lg">{result.player1Correct ? "✅ CORRECT" : "❌ WRONG"}</p>
-                <p className="font-terminal text-sm text-cyan-300">
-                  ELO: {result.eloChanges?.player?.newElo || getUserEloForSubject(duel.player1.elo, userProfile.preferredSubject)}
-                  <span className={result.eloChanges?.player?.change > 0 ? "text-green-400" : "text-red-400"}>
-                    {result.eloChanges?.player?.change > 0 ? " +" : " "}
-                    {result.eloChanges?.player?.change || 0}
-                  </span>
-                </p>
+            {/* Score Display */}
+            <div className="bg-slate-900/50 border border-cyan-400/50 p-4 mb-6">
+              <h3 className="font-pixel text-lg text-cyan-400 mb-4">FINAL SCORE</h3>
+              <div className="flex justify-center items-center gap-8">
+                <div className="text-center">
+                  <div className="font-pixel text-2xl text-cyan-400">{result.player1Score}</div>
+                  <div className="font-terminal text-sm text-cyan-300">{duel.player1.username}</div>
+                </div>
+                <div className="font-pixel text-xl text-slate-400">VS</div>
+                <div className="text-center">
+                  <div className="font-pixel text-2xl text-pink-400">{result.player2Score}</div>
+                  <div className="font-terminal text-sm text-cyan-300">{duel.player2?.username}</div>
+                </div>
               </div>
+              <div className="font-terminal text-xs text-slate-400 mt-2">OUT OF {result.totalQuestions} QUESTIONS</div>
+            </div>
 
-              <div className={`p-4 border-2 ${!isCurrentUserPlayer1 ? "border-cyan-400" : "border-slate-600"}`}>
-                <h3 className="font-pixel text-sm text-cyan-400 mb-2">{duel.player2?.username}</h3>
-                <p className="font-terminal text-lg">{result.player2Correct ? "✅ CORRECT" : "❌ WRONG"}</p>
-                <p className="font-terminal text-sm text-cyan-300">
-                  ELO: {result.eloChanges?.opponent?.newElo || (duel.player2 ? getUserEloForSubject(duel.player2.elo, userProfile.preferredSubject) : "---")}
-                  <span className={result.eloChanges?.opponent?.change > 0 ? "text-green-400" : "text-red-400"}>
-                    {result.eloChanges?.opponent?.change > 0 ? " +" : " "}
-                    {result.eloChanges?.opponent?.change || 0}
-                  </span>
-                </p>
+            {/* Question Results */}
+            <div className="bg-slate-900/50 border border-cyan-400/50 p-4 mb-6">
+              <h4 className="font-pixel text-sm text-yellow-400 mb-3">QUESTION RESULTS</h4>
+              <div className="grid grid-cols-1 gap-2">
+                {result.player1Answers.map((correct: boolean, index: number) => (
+                  <div key={index} className="flex justify-between items-center p-2 bg-slate-800/50 rounded">
+                    <span className="font-terminal text-sm text-cyan-300">Question {index + 1}</span>
+                    <div className="flex gap-4">
+                      <span className={`font-terminal text-sm ${correct ? "text-green-400" : "text-red-400"}`}>
+                        {duel.player1.username}: {correct ? "✅" : "❌"}
+                      </span>
+                      <span
+                        className={`font-terminal text-sm ${result.player2Answers[index] ? "text-green-400" : "text-red-400"}`}
+                      >
+                        {duel.player2?.username}: {result.player2Answers[index] ? "✅" : "❌"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
-            {result.explanation && (
+            {/* ELO Changes */}
+            {!isTrainingMode && result.eloChanges && (
               <div className="bg-slate-900/50 border border-cyan-400/50 p-4 mb-6">
-                <h4 className="font-pixel text-sm text-yellow-400 mb-2">EXPLANATION</h4>
-                <p className="font-terminal text-cyan-300">{result.explanation}</p>
+                <h4 className="font-pixel text-sm text-yellow-400 mb-3">ELO CHANGES</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="text-center">
+                    <div className="font-terminal text-sm text-cyan-300 mb-1">{duel.player1.username}</div>
+                    <div className="font-pixel text-lg text-cyan-400">{result.eloChanges.player.newElo}</div>
+                    <div
+                      className={`font-terminal text-sm ${result.eloChanges.player.change >= 0 ? "text-green-400" : "text-red-400"}`}
+                    >
+                      {result.eloChanges.player.change >= 0 ? "+" : ""}
+                      {result.eloChanges.player.change}
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <div className="font-terminal text-sm text-cyan-300 mb-1">{duel.player2?.username}</div>
+                    <div className="font-pixel text-lg text-pink-400">{result.eloChanges.opponent.newElo}</div>
+                    <div
+                      className={`font-terminal text-sm ${result.eloChanges.opponent.change >= 0 ? "text-green-400" : "text-red-400"}`}
+                    >
+                      {result.eloChanges.opponent.change >= 0 ? "+" : ""}
+                      {result.eloChanges.opponent.change}
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
             <div className="flex gap-4 justify-center">
               <button onClick={() => router.push("/play")} className="retro-button font-pixel text-slate-900 px-6 py-3">
-                ⚔️ BATTLE AGAIN
+                {isTrainingMode ? "🤖 TRAIN AGAIN" : "⚔️ BATTLE AGAIN"}
               </button>
               <button
                 onClick={() => router.push("/dashboard")}
@@ -261,8 +350,31 @@ export default function DuelPage({ params }: DuelPageProps) {
     )
   }
 
+  // Next Question Indicator
+  if (showNextQuestion) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.9 }}
+          className="text-center bg-slate-800/80 border-2 border-green-400 p-8 max-w-md"
+        >
+          <motion.div animate={{ x: [0, 10, 0] }} transition={{ duration: 0.5, repeat: Number.POSITIVE_INFINITY }}>
+            <ArrowRight className="w-16 h-16 text-green-400 mx-auto mb-4" />
+          </motion.div>
+          <h1 className="font-pixel text-xl text-green-400 mb-4">BOTH CORRECT!</h1>
+          <p className="font-terminal text-green-300 mb-4">Moving to next question...</p>
+          <div className="font-pixel text-sm text-cyan-400">
+            QUESTION {duel.currentQuestionIndex + 1} OF {duel.maxQuestions}
+          </div>
+        </motion.div>
+      </div>
+    )
+  }
+
   // Main duel interface
-  const quiz = duel.quizData as QuizQuestion
+  const currentQuestion = duel.quizData?.[duel.currentQuestionIndex] as QuizQuestion
 
   return (
     <div className="min-h-screen p-4">
@@ -277,11 +389,36 @@ export default function DuelPage({ params }: DuelPageProps) {
             <User className="w-8 h-8 text-cyan-400" />
             <div>
               <h3 className="font-pixel text-lg text-cyan-400">{userProfile.username}</h3>
-              <p className="font-terminal text-cyan-300">ELO: {getUserEloForSubject(userProfile.elo, userProfile.preferredSubject)}</p>
+              <p className="font-terminal text-cyan-300">
+                ELO: {getUserEloForSubject(userProfile.elo, userProfile.preferredSubject)}
+              </p>
+              <p className="font-terminal text-xs text-green-400">
+                Score: {isCurrentUserPlayer1 ? duel.player1Score : duel.player2Score}
+              </p>
             </div>
           </div>
 
           <div className="text-center">
+            {/* Game Mode Indicator */}
+            <div className="flex items-center justify-center gap-2 mb-2">
+              {isTrainingMode ? (
+                <>
+                  <Bot className="w-4 h-4 text-purple-400" />
+                  <span className="font-pixel text-xs text-purple-400">TRAINING</span>
+                </>
+              ) : (
+                <>
+                  <Trophy className="w-4 h-4 text-yellow-400" />
+                  <span className="font-pixel text-xs text-yellow-400">RANKED</span>
+                </>
+              )}
+            </div>
+
+            {/* Question Progress */}
+            <div className="font-pixel text-xs text-slate-400 mb-2">
+              Q{duel.currentQuestionIndex + 1}/{duel.maxQuestions}
+            </div>
+
             <motion.div
               animate={{ scale: timeLeft <= 5 ? [1, 1.1, 1] : 1 }}
               transition={{ duration: 0.5, repeat: timeLeft <= 5 ? Number.POSITIVE_INFINITY : 0 }}
@@ -294,11 +431,19 @@ export default function DuelPage({ params }: DuelPageProps) {
 
           <div className="flex items-center gap-4">
             <div className="text-right">
-              <h3 className="font-pixel text-lg text-pink-400">{opponent?.username || "WAITING..."}</h3>
-              <p className="font-terminal text-cyan-300">ELO: {opponent ? getUserEloForSubject(opponent.elo, userProfile.preferredSubject) : "---"}</p>
+              <div className="flex items-center gap-2 justify-end mb-1">
+                <h3 className="font-pixel text-lg text-pink-400">{opponent?.username || "WAITING..."}</h3>
+                {isBot && <Bot className="w-5 h-5 text-purple-400" />}
+              </div>
+              <p className="font-terminal text-cyan-300">
+                ELO: {opponent ? getUserEloForSubject(opponent.elo, userProfile.preferredSubject) : "---"}
+              </p>
+              <p className="font-terminal text-xs text-green-400">
+                Score: {isCurrentUserPlayer1 ? duel.player2Score : duel.player1Score}
+              </p>
             </div>
             <User className="w-8 h-8 text-pink-400" />
-            {hasOpponentAnswered && (
+            {(hasOpponentAnswered || waitingForBot) && (
               <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="w-3 h-3 bg-green-400 rounded-full" />
             )}
           </div>
@@ -306,6 +451,7 @@ export default function DuelPage({ params }: DuelPageProps) {
 
         {/* Question */}
         <motion.div
+          key={duel.currentQuestionIndex} // Re-animate when question changes
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
@@ -313,19 +459,20 @@ export default function DuelPage({ params }: DuelPageProps) {
         >
           <div className="text-center mb-8">
             <h2 className="font-pixel text-sm text-cyan-400 mb-4 tracking-wider">
-              {duel.subject.toUpperCase()} • {duel.difficulty.toUpperCase()}
+              {duel.subject.toUpperCase()}
+              {duel.difficulty && ` • ${duel.difficulty.toUpperCase()}`}
             </h2>
             <div className="w-full h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent mb-6"></div>
-            <p className="font-terminal text-xl text-white leading-relaxed">{quiz?.question}</p>
+            <p className="font-terminal text-xl text-white leading-relaxed">{currentQuestion?.question}</p>
           </div>
         </motion.div>
 
         {/* Answer Options */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-          <AnimatePresence>
-            {quiz?.options.map((option, index) => (
+          <AnimatePresence mode="wait">
+            {currentQuestion?.options.map((option, index) => (
               <motion.button
-                key={index}
+                key={`${duel.currentQuestionIndex}-${index}`} // Re-animate when question changes
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.3 + index * 0.1 }}
@@ -363,7 +510,13 @@ export default function DuelPage({ params }: DuelPageProps) {
 
           {submitted && (
             <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="font-terminal text-cyan-300 mt-4">
-              {hasOpponentAnswered ? "Both answers submitted! Calculating results..." : "Waiting for opponent..."}
+              {waitingForBot
+                ? "Bot is thinking..."
+                : hasOpponentAnswered
+                  ? "Both answers submitted! Processing..."
+                  : isTrainingMode
+                    ? "Waiting for bot response..."
+                    : "Waiting for opponent..."}
             </motion.p>
           )}
         </motion.div>
