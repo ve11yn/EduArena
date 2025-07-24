@@ -40,11 +40,30 @@
   box-shadow: 0 0 10px rgba(0, 255, 255, 0.5), inset 0 0 10px rgba(0, 255, 255, 0.2);
   text-shadow: 0 0 10px rgba(0, 255, 255, 0.8);
   transition: all 0.3s ease;
+  z-index: 50;
+  position: relative;
 }
 
 .retro-button:hover {
   box-shadow: 0 0 20px rgba(0, 255, 255, 0.8), inset 0 0 20px rgba(0, 255, 255, 0.3);
   transform: translateY(-2px);
+}
+
+/* Utility classes for z-index management */
+.z-button {
+  z-index: 50 !important;
+  position: relative !important;
+  pointer-events: auto !important;
+}
+
+.z-interactive {
+  z-index: 40 !important;
+  position: relative !important;
+}
+
+.z-background {
+  z-index: 0 !important;
+  pointer-events: none !important;
 }
 
 .retro-button::before {

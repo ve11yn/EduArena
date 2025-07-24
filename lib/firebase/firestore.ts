@@ -74,10 +74,31 @@ export const getUserById = async (uid: string): Promise<User | null> => {
     const userDoc = await getDoc(doc(db, "users", uid))
     if (userDoc.exists()) {
       const data = userDoc.data()
+      
+      // Handle createdAt conversion with fallback
+      let createdAt: Date
+      try {
+        createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt)
+      } catch (dateError) {
+        console.warn(`⚠️ Error converting createdAt for user ${uid}:`, dateError)
+        createdAt = new Date() // Fallback to current date
+      }
+      
+      // Ensure ELO structure exists with defaults
+      const elo = {
+        math: typeof data.elo?.math === 'number' ? data.elo.math : 0,
+        bahasa: typeof data.elo?.bahasa === 'number' ? data.elo.bahasa : 0,
+        english: typeof data.elo?.english === 'number' ? data.elo.english : 0,
+      }
+      
       return {
         id: userDoc.id,
-        ...data,
-        createdAt: data.createdAt.toDate(),
+        username: data.username || `user_${uid}`,
+        email: data.email || '',
+        elo,
+        preferredSubject: data.preferredSubject,
+        placementTestCompleted: Boolean(data.placementTestCompleted),
+        createdAt,
       } as User
     }
     return null
@@ -292,22 +313,67 @@ export const getTopUsers = async (limit: number = 10, subject?: keyof SubjectElo
     const querySnapshot = await getDocs(usersQuery)
     
     const users = querySnapshot.docs.map((doc) => {
-      const data = doc.data()
-      return {
-        id: doc.id,
-        ...data,
-        createdAt: data.createdAt.toDate(),
-      } as User
+      try {
+        const data = doc.data()
+        
+        // Handle createdAt conversion with fallback
+        let createdAt: Date
+        try {
+          createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt)
+        } catch (dateError) {
+          console.warn(`⚠️ Error converting createdAt for user ${doc.id}:`, dateError)
+          createdAt = new Date() // Fallback to current date
+        }
+        
+        // Ensure ELO structure exists with defaults
+        const elo = {
+          math: typeof data.elo?.math === 'number' ? data.elo.math : 0,
+          bahasa: typeof data.elo?.bahasa === 'number' ? data.elo.bahasa : 0,
+          english: typeof data.elo?.english === 'number' ? data.elo.english : 0,
+        }
+        
+        return {
+          id: doc.id,
+          username: data.username || `user_${doc.id}`,
+          email: data.email || '',
+          elo,
+          preferredSubject: data.preferredSubject,
+          placementTestCompleted: Boolean(data.placementTestCompleted),
+          createdAt,
+        } as User
+      } catch (userError) {
+        console.error(`❌ Error processing user ${doc.id}:`, userError)
+        // Return a minimal valid user object to prevent complete failure
+        return {
+          id: doc.id,
+          username: `invalid_user_${doc.id}`,
+          email: '',
+          elo: { math: 0, bahasa: 0, english: 0 },
+          placementTestCompleted: false,
+          createdAt: new Date(),
+        } as User
+      }
     })
+
+    // Filter out only truly invalid users (negative values or invalid usernames)
+    const validUsers = users.filter(user => 
+      user.elo.math >= 0 && user.elo.bahasa >= 0 && user.elo.english >= 0 &&
+      user.username && !user.username.startsWith('invalid_user_')
+    )
 
     // Sort by subject ELO or overall ELO
-    users.sort((a, b) => {
-      const aElo = subject ? a.elo[subject] : getUserEloForSubject(a.elo)
-      const bElo = subject ? b.elo[subject] : getUserEloForSubject(b.elo)
-      return bElo - aElo
+    validUsers.sort((a, b) => {
+      try {
+        const aElo = subject ? a.elo[subject] : getUserEloForSubject(a.elo)
+        const bElo = subject ? b.elo[subject] : getUserEloForSubject(b.elo)
+        return bElo - aElo
+      } catch (sortError) {
+        console.warn('⚠️ Error sorting users:', sortError)
+        return 0
+      }
     })
 
-    return users.slice(0, limit)
+    return validUsers.slice(0, limit)
   } catch (error) {
     console.error("Error getting top users:", error)
     return []

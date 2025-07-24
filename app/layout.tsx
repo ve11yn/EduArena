@@ -17,7 +17,7 @@ const vt323 = VT323({
 })
 
 export const metadata: Metadata = {
-  title: "🎮 ELO DUEL ARENA",
+  title: "🎮 EDUARENA",
   description: "Retro gaming ELO-based competition platform",
 }
 
@@ -32,7 +32,7 @@ export default function RootLayout({
         <AuthProvider>
           <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-800 relative overflow-hidden">
             {/* Pixel grid background */}
-            <div className="absolute inset-0 opacity-10">
+            <div className="absolute inset-0 opacity-10 z-0" style={{ zIndex: 0 }}>
               <div
                 className="w-full h-full"
                 style={{
@@ -41,10 +41,13 @@ export default function RootLayout({
                   linear-gradient(90deg, rgba(0,255,255,0.1) 1px, transparent 1px)
                 `,
                   backgroundSize: "20px 20px",
+                  pointerEvents: 'none'
                 }}
               />
             </div>
-            {children}
+            <div className="relative z-10">
+              {children}
+            </div>
           </div>
         </AuthProvider>
       </body>

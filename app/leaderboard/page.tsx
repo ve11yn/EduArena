@@ -48,25 +48,48 @@ export default function LeaderboardPage() {
   const [subjectFilter, setSubjectFilter] = useState<'overall' | 'math' | 'bahasa' | 'english'>('overall')
   const [permissionError, setPermissionError] = useState(false)
 
+  console.log(`🔐 Auth state - user: ${user ? user.uid : 'null'}, userProfile: ${userProfile ? userProfile.username : 'null'}`)
+
   useEffect(() => {
     const fetchData = async () => {
       try {
         const subject = subjectFilter === 'overall' ? undefined : subjectFilter as keyof SubjectElo
-        const [users, leaderboardStats] = await Promise.all([
-          getTopUsers(100, subject), // Fetch more users for filtering
-          getLeaderboardStats(subject)
-        ])
+        console.log(`🔍 Fetching leaderboard data for subject: ${subject || 'overall'}`)
+        
+        console.log(`🔧 About to call getTopUsers(100, ${subject})`)
+        const users = await getTopUsers(100, subject)
+        console.log(`📊 getTopUsers returned ${users.length} users:`, users)
+        
+        if (users.length === 0) {
+          console.warn(`⚠️ No users returned - this might be a permissions issue!`)
+          console.warn(`⚠️ Check Firestore security rules for users collection`)
+        }
+        
+        console.log(`🔧 About to call getLeaderboardStats(${subject})`)
+        const leaderboardStats = await getLeaderboardStats(subject)
+        console.log(`� getLeaderboardStats returned:`, leaderboardStats)
+        
+        console.log(`🎯 Raw users data:`, users.map(u => ({
+          username: u.username,
+          id: u.id,
+          elo: u.elo,
+          overallElo: getPlayerElo(u)
+        })))
         
         setTopUsers(users)
         setStats(leaderboardStats)
         setPermissionError(false)
         
         if (userProfile) {
+          console.log(`🔧 Getting rank for user ${userProfile.id}`)
           const rank = await getUserRank(userProfile.id, subject)
+          console.log(`📊 User rank: ${rank}`)
           setUserRank(rank)
         }
       } catch (error) {
-        console.error("Error fetching leaderboard data:", error)
+        console.error("❌ Error fetching leaderboard data:", error)
+        console.error("❌ Error details:", error instanceof Error ? error.message : error)
+        console.error("❌ Error stack:", error instanceof Error ? error.stack : 'No stack trace')
         if (error instanceof Error && error.message.includes('permission')) {
           setPermissionError(true)
         }
@@ -80,6 +103,7 @@ export default function LeaderboardPage() {
     // Subscribe to real-time updates
     const subject = subjectFilter === 'overall' ? undefined : subjectFilter as keyof SubjectElo
     const unsubscribe = subscribeToLeaderboard((users) => {
+      console.log(`🔄 Real-time update: ${users.length} users`)
       setTopUsers(users)
     }, 100, subject)
 
@@ -88,11 +112,30 @@ export default function LeaderboardPage() {
 
   // Helper function to get ELO for the current subject filter
   const getPlayerElo = (player: User): number => {
-    if (subjectFilter === 'overall') {
-      // Return average ELO for overall ranking
-      return Math.round((player.elo.math + player.elo.bahasa + player.elo.english) / 3)
+    try {
+      // Safety check for user and ELO data
+      if (!player || !player.elo) {
+        console.warn(`⚠️ Player missing ELO data:`, player)
+        return 0
+      }
+
+      if (subjectFilter === 'overall') {
+        // Ensure all ELO values exist and are numbers
+        const math = typeof player.elo.math === 'number' ? player.elo.math : 0
+        const bahasa = typeof player.elo.bahasa === 'number' ? player.elo.bahasa : 0
+        const english = typeof player.elo.english === 'number' ? player.elo.english : 0
+        
+        // Return average ELO for overall ranking
+        return Math.round((math + bahasa + english) / 3)
+      }
+      
+      // Get specific subject ELO with fallback
+      const subjectElo = player.elo[subjectFilter as keyof SubjectElo]
+      return typeof subjectElo === 'number' ? subjectElo : 0
+    } catch (error) {
+      console.error(`❌ Error getting ELO for player ${player?.username || 'unknown'}:`, error)
+      return 0
     }
-    return player.elo[subjectFilter as keyof SubjectElo]
   }
 
   const getEloColor = (elo: number) => {
@@ -126,31 +169,89 @@ export default function LeaderboardPage() {
     console.log(`🔍 Filtering users with filterView: ${filterView}`)
     console.log(`📊 Total users before filter: ${users.length}`)
     
-    let filtered: User[]
-    switch (filterView) {
-      case 'rookies':
-        filtered = users.filter(u => getPlayerElo(u) < 600)
-        break
-      case 'experts':
-        filtered = users.filter(u => getPlayerElo(u) >= 600 && getPlayerElo(u) < 800)
-        break
-      case 'masters':
-        filtered = users.filter(u => getPlayerElo(u) >= 800 && getPlayerElo(u) < 1200)
-        break
-      case 'grandmasters':
-        filtered = users.filter(u => getPlayerElo(u) >= 1200)
-        break
-      default:
-        filtered = users
+    try {
+      let filtered: User[]
+      switch (filterView) {
+        case 'rookies':
+          filtered = users.filter(u => {
+            try {
+              const elo = getPlayerElo(u)
+              return elo >= 0 && elo < 600 // Include users starting from 0 ELO
+            } catch (error) {
+              console.warn(`⚠️ Error filtering rookie user ${u.username}:`, error)
+              return false
+            }
+          })
+          break
+        case 'experts':
+          filtered = users.filter(u => {
+            try {
+              const elo = getPlayerElo(u)
+              return elo >= 600 && elo < 800
+            } catch (error) {
+              console.warn(`⚠️ Error filtering expert user ${u.username}:`, error)
+              return false
+            }
+          })
+          break
+        case 'masters':
+          filtered = users.filter(u => {
+            try {
+              const elo = getPlayerElo(u)
+              return elo >= 800 && elo < 1200
+            } catch (error) {
+              console.warn(`⚠️ Error filtering master user ${u.username}:`, error)
+              return false
+            }
+          })
+          break
+        case 'grandmasters':
+          filtered = users.filter(u => {
+            try {
+              const elo = getPlayerElo(u)
+              return elo >= 1200
+            } catch (error) {
+              console.warn(`⚠️ Error filtering grandmaster user ${u.username}:`, error)
+              return false
+            }
+          })
+          break
+        default:
+          filtered = users.filter(u => {
+            try {
+              const elo = getPlayerElo(u)
+              return elo >= 0 // Include all users with valid ELO (including 1000 default)
+            } catch (error) {
+              console.warn(`⚠️ Error checking user ${u.username}:`, error)
+              return false
+            }
+          })
+      }
+      
+      console.log(`✅ Users after filter: ${filtered.length}`)
+      return filtered
+    } catch (error) {
+      console.error(`❌ Critical error in filterUsers:`, error)
+      return []
     }
-    
-    console.log(`✅ Users after filter: ${filtered.length}`)
-    return filtered
   }
 
   const filteredUsers = useMemo(() => {
+    console.log(`🎯 Starting filteredUsers calculation with ${topUsers.length} users`)
+    console.log(`🔍 Current filterView: ${filterView}, subjectFilter: ${subjectFilter}`)
+    
     const filtered = filterUsers(topUsers)
-    return filtered.slice(0, viewLimit)
+    console.log(`✅ After filtering: ${filtered.length} users`)
+    console.log(`📋 Filtered users with ELO:`, filtered.map(u => ({
+      username: u.username,
+      elo: getPlayerElo(u),
+      rawElo: u.elo
+    })))
+    
+    const result = filtered.slice(0, viewLimit)
+    console.log(`📊 Final result after viewLimit (${viewLimit}): ${result.length} users`)
+    
+    return result
   }, [topUsers, filterView, viewLimit])
 
   if (loading) {
