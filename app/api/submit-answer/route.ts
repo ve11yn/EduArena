@@ -3,12 +3,6 @@ import { getDuelById, updateDuel, getUserById, updateUsersElo, getUserEloForSubj
 import { calculateEloRating } from "@/lib/elo"
 import { generateBotAnswer } from "@/lib/game-modes"
 
-interface DuelUpdateData {
-  player1Answer?: string;
-  player1Time?: number;
-  player2Answer?: string;
-  player2Time?: number;
-}
 
 export async function POST(request: NextRequest) {
   try {

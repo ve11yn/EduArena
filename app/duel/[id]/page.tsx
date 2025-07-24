@@ -69,13 +69,20 @@ export default function DuelPage({ params }: DuelPageProps) {
           // Check if question index changed (next question)
           if (prev.currentQuestionIndex !== updatedDuel.currentQuestionIndex) {
             setShowNextQuestion(true)
-            setSubmitted(false)
-            setSelectedAnswer(null)
-            setWaitingForBot(false)
-            setStartTime(Date.now())
+            resetForNextQuestion()
 
             // Hide next question indicator after 2 seconds
             setTimeout(() => setShowNextQuestion(false), 2000)
+          }
+
+          // Check if bot answered (for training mode)
+          if (
+            updatedDuel.isTraining &&
+            updatedDuel.player2Answers &&
+            updatedDuel.player2Answers[updatedDuel.currentQuestionIndex] !== undefined &&
+            waitingForBot
+          ) {
+            setWaitingForBot(false)
           }
 
           return {
@@ -95,23 +102,17 @@ export default function DuelPage({ params }: DuelPageProps) {
     return () => unsubscribe()
   }, [user, userProfile, router, fetchDuel, params.id, startTime])
 
-  // Timer countdown
-  useEffect(() => {
-    if (!startTime || submitted || timeLeft <= 0) return
+  // Add this function to reset state for next question
+  const resetForNextQuestion = () => {
+    setSubmitted(false)
+    setSelectedAnswer(null)
+    setWaitingForBot(false)
+    setTimeLeft(30)
+    setStartTime(Date.now())
+    setError("")
+  }
 
-    const timer = setInterval(() => {
-      const elapsed = Math.floor((Date.now() - startTime) / 1000)
-      const remaining = Math.max(0, 30 - elapsed)
-      setTimeLeft(remaining)
-
-      if (remaining === 0) {
-        handleSubmitAnswer()
-      }
-    }, 100)
-
-    return () => clearInterval(timer)
-  }, [startTime, submitted, timeLeft])
-
+  // Update the handleSubmitAnswer function to better handle training mode:
   const handleSubmitAnswer = async () => {
     if (submitted || !startTime || !userProfile) return
 
@@ -126,7 +127,8 @@ export default function DuelPage({ params }: DuelPageProps) {
         if (result.waitingForBot) {
           setWaitingForBot(true)
         } else if (result.nextQuestion) {
-          // Will be handled by the real-time listener
+          // Next question will be handled by real-time listener
+          console.log("Moving to next question...")
         } else if (result.completed && result.result) {
           setResult(result.result)
         }
@@ -140,6 +142,23 @@ export default function DuelPage({ params }: DuelPageProps) {
       setSubmitted(false)
     }
   }
+
+  // Update the timer reset logic:
+  useEffect(() => {
+    if (!startTime || submitted || timeLeft <= 0 || showNextQuestion) return
+
+    const timer = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000)
+      const remaining = Math.max(0, 30 - elapsed)
+      setTimeLeft(remaining)
+
+      if (remaining === 0) {
+        handleSubmitAnswer()
+      }
+    }, 100)
+
+    return () => clearInterval(timer)
+  }, [startTime, submitted, timeLeft, showNextQuestion])
 
   const isCurrentUserPlayer1 = userProfile?.id === duel?.player1Id
   const opponent = isCurrentUserPlayer1 ? duel?.player2 : duel?.player1
@@ -451,7 +470,7 @@ export default function DuelPage({ params }: DuelPageProps) {
 
         {/* Question */}
         <motion.div
-          key={duel.currentQuestionIndex} // Re-animate when question changes
+          key={`question-${duel.currentQuestionIndex}`} // Better key for re-animation
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
@@ -472,7 +491,7 @@ export default function DuelPage({ params }: DuelPageProps) {
           <AnimatePresence mode="wait">
             {currentQuestion?.options.map((option, index) => (
               <motion.button
-                key={`${duel.currentQuestionIndex}-${index}`} // Re-animate when question changes
+                key={`q${duel.currentQuestionIndex}-opt${index}`} // Better key
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.3 + index * 0.1 }}
