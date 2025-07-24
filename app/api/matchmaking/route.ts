@@ -1,13 +1,14 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { adminAuth } from "@/lib/firebase/admin"
-import { getUserById, findWaitingDuel, createDuel, updateDuel } from "@/lib/firebase/firestore"
+import { getUserById, findWaitingDuel, createDuel, updateDuel, getUserEloForSubject } from "@/lib/firebase/firestore"
+import type { SubjectElo } from "@/lib/types"
 
 export async function POST(request: NextRequest) {
   try {
-    const { topic, difficulty } = await request.json()
+    const { subject, difficulty } = await request.json()
 
-    if (!topic || !difficulty) {
-      return NextResponse.json({ error: "Missing required fields: topic, difficulty" }, { status: 400 })
+    if (!subject || !difficulty) {
+      return NextResponse.json({ error: "Missing required fields: subject, difficulty" }, { status: 400 })
     }
 
     // Verify Firebase Auth token
@@ -25,14 +26,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid token" }, { status: 401 })
     }
 
+    // Validate subject
+    const validSubjects: Array<keyof SubjectElo> = ['math', 'bahasa', 'english']
+    if (!validSubjects.includes(subject as keyof SubjectElo)) {
+      return NextResponse.json({ error: "Invalid subject. Must be one of: math, bahasa, english" }, { status: 400 })
+    }
+
     // Get current user's ELO
     const currentUser = await getUserById(currentUserId)
     if (!currentUser) {
       return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
+    const currentUserElo = getUserEloForSubject(currentUser.elo, subject as keyof SubjectElo)
+
     // Look for existing waiting duels with similar ELO (±100)
-    const waitingDuel = await findWaitingDuel(topic, difficulty, currentUserId, currentUser.elo)
+    const waitingDuel = await findWaitingDuel(subject as keyof SubjectElo, difficulty, currentUserId, currentUserElo, subject as keyof SubjectElo)
 
     if (waitingDuel) {
       // Join existing duel
@@ -49,7 +58,7 @@ export async function POST(request: NextRequest) {
           "Content-Type": "application/json",
           Authorization: authHeader,
         },
-        body: JSON.stringify({ topic, difficulty }),
+        body: JSON.stringify({ subject, difficulty }),
       })
 
       if (!quizResponse.ok) {
@@ -70,7 +79,7 @@ export async function POST(request: NextRequest) {
       // Create new duel and wait for opponent
       const duelId = await createDuel({
         player1Id: currentUserId,
-        topic,
+        subject,
         difficulty,
         status: "waiting",
       })

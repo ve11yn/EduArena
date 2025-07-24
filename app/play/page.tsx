@@ -6,10 +6,10 @@ import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { Gamepad2, Zap, Brain, Clock } from "lucide-react"
 
-const topics = [
+const subjects = [
   { id: "math", name: "MATHEMATICS", icon: "🔢", color: "cyan" },
-  { id: "science", name: "SCIENCE", icon: "🧪", color: "green" },
-  { id: "history", name: "HISTORY", icon: "📚", color: "yellow" },
+  { id: "bahasa", name: "BAHASA INDONESIA", icon: "📚", color: "blue" },
+  { id: "english", name: "ENGLISH", icon: "�️", color: "purple" },
 ]
 
 const difficulties = [
@@ -19,14 +19,14 @@ const difficulties = [
 ]
 
 export default function PlayPage() {
-  const [selectedTopic, setSelectedTopic] = useState("")
+  const [selectedSubject, setSelectedSubject] = useState("")
   const [selectedDifficulty, setSelectedDifficulty] = useState("")
   const [loading, setLoading] = useState(false)
   const { user } = useAuth()
   const router = useRouter()
 
   const handleStartDuel = async () => {
-    if (!selectedTopic || !selectedDifficulty || !user) return
+    if (!selectedSubject || !selectedDifficulty || !user) return
 
     setLoading(true)
     try {
@@ -40,7 +40,7 @@ export default function PlayPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          topic: selectedTopic,
+          subject: selectedSubject,
           difficulty: selectedDifficulty,
         }),
       })
@@ -78,23 +78,23 @@ export default function PlayPage() {
         >
           <div className="flex items-center gap-3 mb-6">
             <Brain className="w-6 h-6 text-pink-400" />
-            <h2 className="font-pixel text-xl text-pink-400 tracking-wider">SELECT TOPIC</h2>
+            <h2 className="font-pixel text-xl text-pink-400 tracking-wider">SELECT SUBJECT</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {topics.map((topic) => (
+            {subjects.map((subject) => (
               <motion.button
-                key={topic.id}
+                key={subject.id}
                 whileHover={{ scale: 1.05, y: -5 }}
                 whileTap={{ scale: 0.95 }}
-                onClick={() => setSelectedTopic(topic.id)}
+                onClick={() => setSelectedSubject(subject.id)}
                 className={`p-6 border-2 transition-all ${
-                  selectedTopic === topic.id
-                    ? `border-${topic.color}-400 bg-${topic.color}-400/20`
+                  selectedSubject === subject.id
+                    ? `border-${subject.color}-400 bg-${subject.color}-400/20`
                     : "border-slate-600 bg-slate-800/50 hover:border-slate-500"
                 }`}
               >
-                <div className="text-4xl mb-4">{topic.icon}</div>
-                <h3 className="font-pixel text-lg text-cyan-400 mb-2">{topic.name}</h3>
+                <div className="text-4xl mb-4">{subject.icon}</div>
+                <h3 className="font-pixel text-lg text-cyan-400 mb-2">{subject.name}</h3>
                 <div className="w-full h-1 bg-gradient-to-r from-transparent via-cyan-400/50 to-transparent"></div>
               </motion.button>
             ))}
@@ -144,7 +144,7 @@ export default function PlayPage() {
             whileHover={{ scale: 1.05, y: -2 }}
             whileTap={{ scale: 0.95 }}
             onClick={handleStartDuel}
-            disabled={!selectedTopic || !selectedDifficulty || loading}
+            disabled={!selectedSubject || !selectedDifficulty || loading}
             className="retro-button font-pixel text-slate-900 px-12 py-4 text-lg tracking-wider disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? (
@@ -157,9 +157,9 @@ export default function PlayPage() {
             )}
           </motion.button>
 
-          {selectedTopic && selectedDifficulty && (
+          {selectedSubject && selectedDifficulty && (
             <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="font-terminal text-cyan-300 mt-4">
-              Ready for {topics.find((t) => t.id === selectedTopic)?.name} •{" "}
+              Ready for {subjects.find((s) => s.id === selectedSubject)?.name} •{" "}
               {difficulties.find((d) => d.id === selectedDifficulty)?.name}
             </motion.p>
           )}

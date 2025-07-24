@@ -3,11 +3,11 @@ import { adminAuth } from "@/lib/firebase/admin"
 
 export async function POST(request: NextRequest) {
   try {
-    const { topic, difficulty } = await request.json()
+    const { subject, difficulty } = await request.json()
 
     // Validate input
-    if (!topic || !difficulty) {
-      return NextResponse.json({ error: "Missing required fields: topic, difficulty" }, { status: 400 })
+    if (!subject || !difficulty) {
+      return NextResponse.json({ error: "Missing required fields: subject, difficulty" }, { status: 400 })
     }
 
     // Verify Firebase Auth token
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate quiz question
-    const quizQuestion = await generateMockQuiz(topic, difficulty)
+    const quizQuestion = await generateMockQuiz(subject, difficulty)
 
     return NextResponse.json({
       success: true,
@@ -36,8 +36,8 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function generateMockQuiz(topic: string, difficulty: string) {
-  // Mock quiz questions for different topics and difficulties
+async function generateMockQuiz(subject: string, difficulty: string) {
+  // Mock quiz questions for different subjects and difficulties
   const quizBank = {
     math: {
       beginner: [
@@ -77,68 +77,68 @@ async function generateMockQuiz(topic: string, difficulty: string) {
         },
       ],
     },
-    science: {
+    english: {
       beginner: [
         {
-          question: "What planet is closest to the Sun?",
-          options: ["Venus", "Mercury", "Earth", "Mars"],
-          correct_answer: 1,
-          explanation: "Mercury is the closest planet to the Sun",
+          question: "Which word is a noun?",
+          options: ["Run", "Beautiful", "House", "Quickly"],
+          correct_answer: 2,
+          explanation: "House is a noun - it names a thing",
         },
       ],
       intermediate: [
         {
-          question: "What is the chemical symbol for gold?",
-          options: ["Go", "Gd", "Au", "Ag"],
+          question: "What is the past tense of 'go'?",
+          options: ["Goes", "Gone", "Went", "Going"],
           correct_answer: 2,
-          explanation: "Au is the chemical symbol for gold, from the Latin 'aurum'",
+          explanation: "The past tense of 'go' is 'went'",
         },
       ],
       advanced: [
         {
-          question: "What is the speed of light in a vacuum?",
-          options: ["299,792,458 m/s", "300,000,000 m/s", "299,000,000 m/s", "301,000,000 m/s"],
-          correct_answer: 0,
-          explanation: "The speed of light in a vacuum is exactly 299,792,458 m/s",
+          question: "Which sentence uses correct subject-verb agreement?",
+          options: ["The team are playing well", "The team is playing well", "The teams is playing well", "The teams are play well"],
+          correct_answer: 1,
+          explanation: "Team is a collective noun that takes a singular verb: 'The team is playing well'",
         },
       ],
     },
-    history: {
+    bahasa: {
       beginner: [
         {
-          question: "In which year did World War II end?",
-          options: ["1944", "1945", "1946", "1947"],
+          question: "Apa arti kata 'rumah' dalam bahasa Indonesia?",
+          options: ["Car", "House", "School", "Book"],
           correct_answer: 1,
-          explanation: "World War II ended in 1945",
+          explanation: "Rumah artinya house dalam bahasa Inggris",
         },
       ],
       intermediate: [
         {
-          question: "Who was the first President of the United States?",
-          options: ["Thomas Jefferson", "John Adams", "George Washington", "Benjamin Franklin"],
-          correct_answer: 2,
-          explanation: "George Washington was the first President of the United States",
+          question: "Manakah yang merupakan kata kerja?",
+          options: ["Meja", "Berlari", "Biru", "Besar"],
+          correct_answer: 1,
+          explanation: "Berlari adalah kata kerja yang menunjukkan tindakan",
         },
       ],
       advanced: [
         {
-          question: "The Treaty of Westphalia was signed in which year?",
-          options: ["1648", "1649", "1650", "1651"],
-          correct_answer: 0,
-          explanation: "The Treaty of Westphalia was signed in 1648, ending the Thirty Years' War",
+          question: "Apa bentuk pasif dari kalimat 'Saya membaca buku'?",
+          options: ["Buku saya baca", "Buku dibaca oleh saya", "Saya baca buku", "Membaca buku saya"],
+          correct_answer: 1,
+          explanation: "Bentuk pasif yang benar adalah 'Buku dibaca oleh saya'",
         },
       ],
     },
   }
 
-  const topicQuestions = quizBank[topic as keyof typeof quizBank]
-  if (!topicQuestions) {
-    throw new Error(`Topic ${topic} not supported`)
+  const subjectQuestions = quizBank[subject as keyof typeof quizBank]
+  if (!subjectQuestions) {
+    throw new Error(`Subject ${subject} not supported`)
   }
 
-  const difficultyQuestions = topicQuestions[difficulty as keyof typeof topicQuestions]
+  const difficultyQuestions = subjectQuestions[difficulty as keyof typeof subjectQuestions]
   if (!difficultyQuestions) {
-    throw new Error(`Difficulty ${difficulty} not supported for topic ${topic}`)
+    throw new Error(`Difficulty ${difficulty} not supported for subject ${subject}`)
   }
 
   // Return a random question from the available ones

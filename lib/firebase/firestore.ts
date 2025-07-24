@@ -38,7 +38,7 @@ export interface Duel {
   id: string
   player1Id: string
   player2Id?: string
-  topic: string
+  subject: keyof SubjectElo
   difficulty: string
   quizData?: QuizQuestion
   player1Answer?: string
@@ -177,17 +177,17 @@ export const getDuelWithUsers = async (duelId: string): Promise<DuelWithUsers | 
 }
 
 export const findWaitingDuel = async (
-  topic: string, 
+  subject: keyof SubjectElo, 
   difficulty: string, 
   currentUserId: string, 
   userElo: number,
-  subject: keyof SubjectElo
+  subjectForElo: keyof SubjectElo
 ) => {
   try {
     const duelsQuery = query(
       collection(db, "duels"),
       where("status", "==", "waiting"),
-      where("topic", "==", topic),
+      where("subject", "==", subject),
       where("difficulty", "==", difficulty),
       orderBy("createdAt", "asc"),
     )
@@ -201,7 +201,7 @@ export const findWaitingDuel = async (
       // Get player1 data to check ELO for the specific subject
       const player1 = await getUserById(duelData.player1Id)
       if (player1) {
-        const player1Elo = player1.elo[subject]
+        const player1Elo = player1.elo[subjectForElo]
         if (Math.abs(player1Elo - userElo) <= 100) {
           return {
             id: docSnapshot.id,

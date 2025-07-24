@@ -1,7 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { adminAuth } from "@/lib/firebase/admin"
-import { getDuelById, updateDuel, getUserById, updateUsersElo } from "@/lib/firebase/firestore"
+import { getDuelById, updateDuel, getUserById, updateUsersElo, getUserEloForSubject } from "@/lib/firebase/firestore"
 import { calculateEloRating } from "@/lib/elo"
+import type { SubjectElo } from "@/lib/types"
 
 export async function POST(request: NextRequest) {
   try {
@@ -77,6 +78,9 @@ async function processDuelResult(duel: any) {
   const quizData = duel.quizData
   const correctAnswer = quizData.correct_answer
 
+  // Get the subject from the duel
+  const subject = duel.subject
+
   // Check correctness
   const player1Correct = Number.parseInt(duel.player1Answer) === correctAnswer
   const player2Correct = Number.parseInt(duel.player2Answer) === correctAnswer
@@ -113,7 +117,7 @@ async function processDuelResult(duel: any) {
   }
   // If both wrong, both lose (already set to 0)
 
-  // Get current ELO ratings
+  // Get current ELO ratings for the specific subject
   const player1 = await getUserById(duel.player1Id)
   const player2 = await getUserById(duel.player2Id!)
 
@@ -121,9 +125,12 @@ async function processDuelResult(duel: any) {
     throw new Error("Failed to get player data")
   }
 
+  const player1CurrentElo = getUserEloForSubject(player1.elo, subject)
+  const player2CurrentElo = getUserEloForSubject(player2.elo, subject)
+
   // Calculate new ELO ratings
-  const newPlayer1Elo = calculateEloRating(player1.elo, player2.elo, player1Result)
-  const newPlayer2Elo = calculateEloRating(player2.elo, player1.elo, player2Result)
+  const newPlayer1Elo = calculateEloRating(player1CurrentElo, player2CurrentElo, player1Result)
+  const newPlayer2Elo = calculateEloRating(player2CurrentElo, player1CurrentElo, player2Result)
 
   // Update duel status
   await updateDuel(duel.id, {
@@ -133,7 +140,7 @@ async function processDuelResult(duel: any) {
   })
 
   // Update ELO ratings
-  await updateUsersElo(duel.player1Id, duel.player2Id, newPlayer1Elo, newPlayer2Elo)
+  await updateUsersElo(duel.player1Id, duel.player2Id, subject, newPlayer1Elo, newPlayer2Elo)
 
   return {
     winnerId,
@@ -143,14 +150,14 @@ async function processDuelResult(duel: any) {
     explanation: quizData.explanation,
     eloChanges: {
       player: {
-        oldElo: player1.elo,
+        oldElo: player1CurrentElo,
         newElo: newPlayer1Elo,
-        change: newPlayer1Elo - player1.elo,
+        change: newPlayer1Elo - player1CurrentElo,
       },
       opponent: {
-        oldElo: player2.elo,
+        oldElo: player2CurrentElo,
         newElo: newPlayer2Elo,
-        change: newPlayer2Elo - player2.elo,
+        change: newPlayer2Elo - player2CurrentElo,
       },
     },
   }

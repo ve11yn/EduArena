@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth-context"
 import { signOutUser } from "@/lib/firebase/auth"
 import { useLeaderboard, getEloColor, getRankTitle } from "@/hooks/use-leaderboard"
 import { getUserEloForSubject } from "@/lib/firebase/firestore"
-import { Trophy, TrendingUp, Users, LogOut, Gamepad2, Crown, Medal, Award } from "lucide-react"
+import { Trophy, TrendingUp, Users, LogOut, Gamepad2, Crown, Medal, Award, User } from "lucide-react"
 import Link from "next/link"
 
 export default function DashboardPage() {
@@ -134,6 +134,17 @@ export default function DashboardPage() {
                     style={{ pointerEvents: 'auto' }} // Ensure button is always clickable
                   >
                     🏆 RANKINGS
+                  </motion.button>
+                </Link>
+                <Link href="/profile" className="relative z-10">
+                  <motion.button
+                    whileHover={{ scale: 1.05, y: -2 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="bg-purple-400/20 border-2 border-purple-400 text-purple-400 font-pixel px-6 py-3 text-sm tracking-wider hover:bg-purple-400/30 transition-colors relative z-10"
+                    style={{ pointerEvents: 'auto' }}
+                  >
+                    <User className="w-4 h-4 inline mr-2" />
+                    PROFILE
                   </motion.button>
                 </Link>
               </div>

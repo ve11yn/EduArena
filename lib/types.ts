@@ -32,7 +32,7 @@ export interface Duel {
   id: string
   player1_id: string
   player2_id: string | undefined
-  topic: string
+  subject: keyof SubjectElo
   difficulty: string
   quiz_data: QuizQuestion | null
   player1_answer: string | null

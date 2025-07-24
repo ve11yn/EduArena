@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
-import { getDuelWithUsers, subscribeToDuel } from "@/lib/firebase/firestore"
+import { getDuelWithUsers, subscribeToDuel, getUserEloForSubject } from "@/lib/firebase/firestore"
 import { Clock, User, Trophy, Zap } from "lucide-react"
 import type { DuelWithUsers, QuizQuestion } from "@/lib/firebase/firestore"
 
@@ -176,7 +176,7 @@ export default function DuelPage({ params }: DuelPageProps) {
           />
           <h1 className="font-pixel text-xl text-cyan-400 mb-4">SEARCHING FOR OPPONENT</h1>
           <p className="font-terminal text-cyan-300 mb-6">
-            Topic: {duel.topic.toUpperCase()} • {duel.difficulty.toUpperCase()}
+            Topic: {duel.subject.toUpperCase()} • {duel.difficulty.toUpperCase()}
           </p>
           <div className="w-full h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent"></div>
         </motion.div>
@@ -216,7 +216,7 @@ export default function DuelPage({ params }: DuelPageProps) {
                 <h3 className="font-pixel text-sm text-cyan-400 mb-2">{duel.player1.username}</h3>
                 <p className="font-terminal text-lg">{result.player1Correct ? "✅ CORRECT" : "❌ WRONG"}</p>
                 <p className="font-terminal text-sm text-cyan-300">
-                  ELO: {result.eloChanges?.player?.newElo || duel.player1.elo}
+                  ELO: {result.eloChanges?.player?.newElo || getUserEloForSubject(duel.player1.elo, userProfile.preferredSubject)}
                   <span className={result.eloChanges?.player?.change > 0 ? "text-green-400" : "text-red-400"}>
                     {result.eloChanges?.player?.change > 0 ? " +" : " "}
                     {result.eloChanges?.player?.change || 0}
@@ -228,7 +228,7 @@ export default function DuelPage({ params }: DuelPageProps) {
                 <h3 className="font-pixel text-sm text-cyan-400 mb-2">{duel.player2?.username}</h3>
                 <p className="font-terminal text-lg">{result.player2Correct ? "✅ CORRECT" : "❌ WRONG"}</p>
                 <p className="font-terminal text-sm text-cyan-300">
-                  ELO: {result.eloChanges?.opponent?.newElo || duel.player2?.elo}
+                  ELO: {result.eloChanges?.opponent?.newElo || (duel.player2 ? getUserEloForSubject(duel.player2.elo, userProfile.preferredSubject) : "---")}
                   <span className={result.eloChanges?.opponent?.change > 0 ? "text-green-400" : "text-red-400"}>
                     {result.eloChanges?.opponent?.change > 0 ? " +" : " "}
                     {result.eloChanges?.opponent?.change || 0}
@@ -277,7 +277,7 @@ export default function DuelPage({ params }: DuelPageProps) {
             <User className="w-8 h-8 text-cyan-400" />
             <div>
               <h3 className="font-pixel text-lg text-cyan-400">{userProfile.username}</h3>
-              <p className="font-terminal text-cyan-300">ELO: {userProfile.elo}</p>
+              <p className="font-terminal text-cyan-300">ELO: {getUserEloForSubject(userProfile.elo, userProfile.preferredSubject)}</p>
             </div>
           </div>
 
@@ -295,7 +295,7 @@ export default function DuelPage({ params }: DuelPageProps) {
           <div className="flex items-center gap-4">
             <div className="text-right">
               <h3 className="font-pixel text-lg text-pink-400">{opponent?.username || "WAITING..."}</h3>
-              <p className="font-terminal text-cyan-300">ELO: {opponent?.elo || "---"}</p>
+              <p className="font-terminal text-cyan-300">ELO: {opponent ? getUserEloForSubject(opponent.elo, userProfile.preferredSubject) : "---"}</p>
             </div>
             <User className="w-8 h-8 text-pink-400" />
             {hasOpponentAnswered && (
@@ -313,7 +313,7 @@ export default function DuelPage({ params }: DuelPageProps) {
         >
           <div className="text-center mb-8">
             <h2 className="font-pixel text-sm text-cyan-400 mb-4 tracking-wider">
-              {duel.topic.toUpperCase()} • {duel.difficulty.toUpperCase()}
+              {duel.subject.toUpperCase()} • {duel.difficulty.toUpperCase()}
             </h2>
             <div className="w-full h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent mb-6"></div>
             <p className="font-terminal text-xl text-white leading-relaxed">{quiz?.question}</p>
