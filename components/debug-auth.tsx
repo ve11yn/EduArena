@@ -5,6 +5,7 @@ import { motion } from "framer-motion"
 import { useAuth } from "@/lib/auth-context"
 import { auth } from "@/lib/firebase/config"
 import { onAuthStateChanged } from "firebase/auth"
+import type { SubjectElo } from "@/lib/firebase/auth"
 
 export default function DebugAuth() {
   const { user, userProfile } = useAuth()
@@ -43,7 +44,11 @@ export default function DebugAuth() {
         {userProfile && (
           <>
             <p><strong>Username:</strong> {userProfile.username}</p>
-            <p><strong>ELO:</strong> {userProfile.elo}</p>
+            <p><strong>Math ELO:</strong> {userProfile.elo.math}</p>
+            <p><strong>Bahasa ELO:</strong> {userProfile.elo.bahasa}</p>
+            <p><strong>English ELO:</strong> {userProfile.elo.english}</p>
+            <p><strong>Preferred:</strong> {userProfile.preferredSubject || 'None'}</p>
+            <p><strong>Placement Done:</strong> {userProfile.placementTestCompleted ? '✅' : '❌'}</p>
           </>
         )}
       </div>

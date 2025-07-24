@@ -10,6 +10,21 @@ const config: Config = {
     "./app/**/*.{js,ts,jsx,tsx,mdx}",
     "*.{js,ts,jsx,tsx,mdx}"
   ],
+  safelist: [
+    // Subject colors for placement test
+    'border-green-400',
+    'border-blue-400', 
+    'border-purple-400',
+    'bg-green-400/10',
+    'bg-blue-400/10',
+    'bg-purple-400/10',
+    'hover:bg-green-400/20',
+    'hover:bg-blue-400/20',
+    'hover:bg-purple-400/20',
+    'text-green-400',
+    'text-blue-400',
+    'text-purple-400',
+  ],
   theme: {
   	extend: {
   		colors: {

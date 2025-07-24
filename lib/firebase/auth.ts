@@ -9,11 +9,19 @@ import {
 import { doc, setDoc, getDoc } from "firebase/firestore"
 import { db } from "../firebase/config"
 
+export interface SubjectElo {
+  math: number
+  bahasa: number
+  english: number
+}
+
 export interface UserProfile {
   id: string
   username: string
   email: string
-  elo: number
+  elo: SubjectElo
+  preferredSubject?: keyof SubjectElo
+  placementTestCompleted: boolean
   createdAt: Date
 }
 
@@ -27,7 +35,12 @@ export const createUser = async (email: string, password: string, username: stri
       id: user.uid,
       username,
       email: user.email!,
-      elo: 400,
+      elo: {
+        math: 400,
+        bahasa: 400,
+        english: 400
+      },
+      placementTestCompleted: false,
       createdAt: new Date(),
     }
 
@@ -75,4 +88,50 @@ export const getUserProfile = async (uid: string): Promise<UserProfile | null> =
 
 export const onAuthStateChange = (callback: (user: User | null) => void) => {
   return onAuthStateChanged(auth, callback)
+}
+
+export const updateUserEloAfterPlacementTest = async (
+  uid: string, 
+  subjectScores: { math: number; bahasa: number; english: number }
+): Promise<void> => {
+  try {
+    // Calculate ELO based on score for each subject (0-400 possible points per subject)
+    const calculateElo = (score: number): number => {
+      if (score >= 300) return 800      // Expert level (75%+ correct)
+      else if (score >= 200) return 700  // Advanced level (50%+ correct) 
+      else if (score >= 100) return 600  // Intermediate level (25%+ correct)
+      else if (score >= 50) return 500   // Beginner+ level (12.5%+ correct)
+      else return 400 // Beginner level
+    }
+
+    const elo: SubjectElo = {
+      math: calculateElo(subjectScores.math),
+      bahasa: calculateElo(subjectScores.bahasa),
+      english: calculateElo(subjectScores.english)
+    }
+
+    // Determine preferred subject based on highest score
+    const preferredSubject: keyof SubjectElo = Object.keys(subjectScores).reduce((a, b) => 
+      subjectScores[a as keyof typeof subjectScores] > subjectScores[b as keyof typeof subjectScores] ? a : b
+    ) as keyof SubjectElo
+
+    const userRef = doc(db, "users", uid)
+    const userDoc = await getDoc(userRef)
+    
+    if (userDoc.exists()) {
+      const userData = userDoc.data() as UserProfile
+      
+      await setDoc(userRef, {
+        ...userData,
+        elo,
+        preferredSubject,
+        placementTestCompleted: true
+      }, { merge: true })
+    } else {
+      throw new Error("User document not found")
+    }
+  } catch (error) {
+    console.error("Error updating user ELO:", error)
+    throw error
+  }
 }

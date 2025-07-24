@@ -3,14 +3,17 @@ import {
   getTopUsers, 
   getUserRank, 
   getLeaderboardStats, 
-  subscribeToLeaderboard 
+  subscribeToLeaderboard,
+  getUserEloForSubject,
+  getHighestElo
 } from "@/lib/firebase/firestore"
-import type { User } from "@/lib/firebase/firestore"
+import type { User, SubjectElo } from "@/lib/firebase/firestore"
 
 interface UseLeaderboardOptions {
   limit?: number
   realtime?: boolean
   includeStats?: boolean
+  subject?: keyof SubjectElo
 }
 
 interface LeaderboardStats {
@@ -31,7 +34,8 @@ interface UseLeaderboardReturn {
 export const useLeaderboard = ({
   limit = 10,
   realtime = true,
-  includeStats = true
+  includeStats = true,
+  subject
 }: UseLeaderboardOptions = {}): UseLeaderboardReturn => {
   const [topUsers, setTopUsers] = useState<User[]>([])
   const [stats, setStats] = useState<LeaderboardStats>({
@@ -46,10 +50,10 @@ export const useLeaderboard = ({
     try {
       setError(null)
       
-      const promises: Promise<any>[] = [getTopUsers(limit)]
+      const promises: Promise<any>[] = [getTopUsers(limit, subject)]
       
       if (includeStats) {
-        promises.push(getLeaderboardStats())
+        promises.push(getLeaderboardStats(subject))
       }
       
       const results = await Promise.all(promises)
@@ -80,7 +84,7 @@ export const useLeaderboard = ({
 
   const getUserRankPosition = async (userId: string): Promise<number> => {
     try {
-      return await getUserRank(userId)
+      return await getUserRank(userId, subject)
     } catch (err) {
       console.error("Error getting user rank:", err)
       return 0
@@ -96,14 +100,14 @@ export const useLeaderboard = ({
     fetchData()
 
     if (realtime) {
-      const unsubscribe = subscribeToLeaderboard(limit, (users) => {
+      const unsubscribe = subscribeToLeaderboard((users: User[]) => {
         setTopUsers(users)
         setError(null)
-      })
+      }, limit, subject)
 
       return () => unsubscribe()
     }
-  }, [limit, realtime, includeStats])
+  }, [limit, realtime, includeStats, subject])
 
   return {
     topUsers,

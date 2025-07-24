@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { signOutUser } from "@/lib/firebase/auth"
 import { useLeaderboard, getEloColor, getRankTitle } from "@/hooks/use-leaderboard"
+import { getUserEloForSubject } from "@/lib/firebase/firestore"
 import { Trophy, TrendingUp, Users, LogOut, Gamepad2, Crown, Medal, Award } from "lucide-react"
 import Link from "next/link"
 
@@ -20,6 +21,12 @@ export default function DashboardPage() {
   const [initialLeaderboardLoaded, setInitialLeaderboardLoaded] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const router = useRouter()
+
+  // Helper function to get display ELO
+  const getDisplayElo = (userElo: any) => {
+    if (typeof userElo === 'number') return userElo // Legacy support
+    return getUserEloForSubject(userElo, userProfile?.preferredSubject)
+  }
 
   useEffect(() => {
     if (authLoading) return
@@ -160,8 +167,15 @@ export default function DashboardPage() {
               <Trophy className="w-8 h-8 text-yellow-400" />
               <span className="font-pixel text-xs text-yellow-400 tracking-wider">ELO RATING</span>
             </div>
-            <div className={`font-pixel text-3xl ${getEloColor(userProfile.elo)} mb-2`}>{userProfile.elo}</div>
-            <p className="font-terminal text-yellow-300 text-sm">{getRankTitle(userProfile.elo)}</p>
+            <div className={`font-pixel text-3xl ${getEloColor(getDisplayElo(userProfile.elo))} mb-2`}>
+              {getDisplayElo(userProfile.elo)}
+            </div>
+            <p className="font-terminal text-yellow-300 text-sm">{getRankTitle(getDisplayElo(userProfile.elo))}</p>
+            {userProfile.preferredSubject && (
+              <p className="font-terminal text-xs text-yellow-200 mt-1">
+                {userProfile.preferredSubject.toUpperCase()}
+              </p>
+            )}
           </motion.div>
 
           <motion.div
@@ -258,8 +272,10 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className={`font-pixel text-lg ${getEloColor(player.elo)}`}>{player.elo}</div>
-                  <div className="font-terminal text-xs text-cyan-300">{getRankTitle(player.elo)}</div>
+                  <div className={`font-pixel text-lg ${getEloColor(getDisplayElo(player.elo))}`}>
+                    {getDisplayElo(player.elo)}
+                  </div>
+                  <div className="font-terminal text-xs text-cyan-300">{getRankTitle(getDisplayElo(player.elo))}</div>
                 </div>
               </motion.div>
             ))}

@@ -29,7 +29,7 @@ export default function RegisterPage() {
       // Set session cookie for middleware
       document.cookie = "__session=authenticated; path=/; max-age=86400"
 
-      router.push("/dashboard")
+      router.push("/placement-test")
     } catch (err: any) {
       setError(getFirebaseErrorMessage(err))
     } finally {

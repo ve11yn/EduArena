@@ -24,6 +24,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import type { User } from "@/lib/firebase/firestore"
+import type { SubjectElo } from "@/lib/firebase/auth"
 import DebugAuth from "@/components/debug-auth"
 
 interface LeaderboardStats {
@@ -44,14 +45,16 @@ export default function LeaderboardPage() {
   const [loading, setLoading] = useState(true)
   const [viewLimit, setViewLimit] = useState(25)
   const [filterView, setFilterView] = useState<'all' | 'rookies' | 'experts' | 'masters' | 'grandmasters'>('all')
+  const [subjectFilter, setSubjectFilter] = useState<'overall' | 'math' | 'bahasa' | 'english'>('overall')
   const [permissionError, setPermissionError] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
       try {
+        const subject = subjectFilter === 'overall' ? undefined : subjectFilter as keyof SubjectElo
         const [users, leaderboardStats] = await Promise.all([
-          getTopUsers(100), // Fetch more users for filtering
-          getLeaderboardStats()
+          getTopUsers(100, subject), // Fetch more users for filtering
+          getLeaderboardStats(subject)
         ])
         
         setTopUsers(users)
@@ -59,7 +62,7 @@ export default function LeaderboardPage() {
         setPermissionError(false)
         
         if (userProfile) {
-          const rank = await getUserRank(userProfile.id)
+          const rank = await getUserRank(userProfile.id, subject)
           setUserRank(rank)
         }
       } catch (error) {
@@ -75,12 +78,22 @@ export default function LeaderboardPage() {
     fetchData()
 
     // Subscribe to real-time updates
-    const unsubscribe = subscribeToLeaderboard(100, (users) => {
+    const subject = subjectFilter === 'overall' ? undefined : subjectFilter as keyof SubjectElo
+    const unsubscribe = subscribeToLeaderboard((users) => {
       setTopUsers(users)
-    })
+    }, 100, subject)
 
     return () => unsubscribe()
-  }, [userProfile])
+  }, [userProfile, subjectFilter])
+
+  // Helper function to get ELO for the current subject filter
+  const getPlayerElo = (player: User): number => {
+    if (subjectFilter === 'overall') {
+      // Return average ELO for overall ranking
+      return Math.round((player.elo.math + player.elo.bahasa + player.elo.english) / 3)
+    }
+    return player.elo[subjectFilter as keyof SubjectElo]
+  }
 
   const getEloColor = (elo: number) => {
     if (elo >= 1200) return "text-yellow-400"
@@ -116,16 +129,16 @@ export default function LeaderboardPage() {
     let filtered: User[]
     switch (filterView) {
       case 'rookies':
-        filtered = users.filter(u => u.elo < 600)
+        filtered = users.filter(u => getPlayerElo(u) < 600)
         break
       case 'experts':
-        filtered = users.filter(u => u.elo >= 600 && u.elo < 800)
+        filtered = users.filter(u => getPlayerElo(u) >= 600 && getPlayerElo(u) < 800)
         break
       case 'masters':
-        filtered = users.filter(u => u.elo >= 800 && u.elo < 1200)
+        filtered = users.filter(u => getPlayerElo(u) >= 800 && getPlayerElo(u) < 1200)
         break
       case 'grandmasters':
-        filtered = users.filter(u => u.elo >= 1200)
+        filtered = users.filter(u => getPlayerElo(u) >= 1200)
         break
       default:
         filtered = users
@@ -268,24 +281,48 @@ export default function LeaderboardPage() {
           className="bg-slate-800/80 border-2 border-slate-600 p-4 mb-6 relative z-50"
         >
           <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
-            <div className="flex items-center gap-4">
+            <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
               <Filter className="w-5 h-5 text-slate-400" />
-              <select
-                value={filterView}
-                onChange={(e) => {
-                  const newFilter = e.target.value as typeof filterView
-                  console.log(`🎯 Filter changed from ${filterView} to ${newFilter}`)
-                  console.log(`🎯 Event target value:`, e.target.value)
-                  setFilterView(newFilter)
-                }}
-                className="bg-slate-700 border border-slate-600 text-cyan-400 font-pixel text-sm px-3 py-2 cursor-pointer hover:border-cyan-400 transition-colors relative z-10"
-              >
-                <option value="all">ALL RANKS</option>
-                <option value="rookies">ROOKIES (0-599)</option>
-                <option value="experts">EXPERTS (600-799)</option>
-                <option value="masters">MASTERS (800-1199)</option>
-                <option value="grandmasters">GRANDMASTERS (1200+)</option>
-              </select>
+              
+              {/* Subject Filter */}
+              <div className="flex items-center gap-2">
+                <span className="font-terminal text-xs text-slate-400">SUBJECT:</span>
+                <select
+                  value={subjectFilter}
+                  onChange={(e) => {
+                    const newSubject = e.target.value as typeof subjectFilter
+                    console.log(`🎯 Subject filter changed from ${subjectFilter} to ${newSubject}`)
+                    setSubjectFilter(newSubject)
+                  }}
+                  className="bg-slate-700 border border-slate-600 text-cyan-400 font-pixel text-sm px-3 py-2 cursor-pointer hover:border-cyan-400 transition-colors relative z-10"
+                >
+                  <option value="overall">OVERALL</option>
+                  <option value="math">MATHEMATICS</option>
+                  <option value="bahasa">BAHASA INDONESIA</option>
+                  <option value="english">ENGLISH</option>
+                </select>
+              </div>
+
+              {/* Rank Filter */}
+              <div className="flex items-center gap-2">
+                <span className="font-terminal text-xs text-slate-400">RANK:</span>
+                <select
+                  value={filterView}
+                  onChange={(e) => {
+                    const newFilter = e.target.value as typeof filterView
+                    console.log(`🎯 Filter changed from ${filterView} to ${newFilter}`)
+                    console.log(`🎯 Event target value:`, e.target.value)
+                    setFilterView(newFilter)
+                  }}
+                  className="bg-slate-700 border border-slate-600 text-cyan-400 font-pixel text-sm px-3 py-2 cursor-pointer hover:border-cyan-400 transition-colors relative z-10"
+                >
+                  <option value="all">ALL RANKS</option>
+                  <option value="rookies">ROOKIES (0-599)</option>
+                  <option value="experts">EXPERTS (600-799)</option>
+                  <option value="masters">MASTERS (800-1199)</option>
+                  <option value="grandmasters">GRANDMASTERS (1200+)</option>
+                </select>
+              </div>
             </div>
             
             <div className="flex items-center gap-2">
@@ -318,7 +355,7 @@ export default function LeaderboardPage() {
           <div className="flex items-center gap-3 mb-6">
             <Trophy className="w-6 h-6 text-cyan-400" />
             <h2 className="font-pixel text-xl text-cyan-400 tracking-wider">
-              {filterView.toUpperCase()} RANKINGS
+              {subjectFilter.toUpperCase()} {filterView.toUpperCase()} RANKINGS
             </h2>
             <span className="text-xs bg-cyan-400/20 text-cyan-300 px-2 py-1 font-terminal">
               {filteredUsers.length} PLAYERS
@@ -380,11 +417,11 @@ export default function LeaderboardPage() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className={`font-pixel text-2xl ${getEloColor(player.elo)}`}>
-                      {player.elo}
+                    <div className={`font-pixel text-2xl ${getEloColor(getPlayerElo(player))}`}>
+                      {getPlayerElo(player)}
                     </div>
                     <div className="font-terminal text-sm text-cyan-300">
-                      {getRankTitle(player.elo)}
+                      {getRankTitle(getPlayerElo(player))}
                     </div>
                   </div>
                 </motion.div>

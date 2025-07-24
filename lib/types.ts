@@ -6,11 +6,19 @@ export interface Product {
   image: string
 }
 
+export interface SubjectElo {
+  math: number
+  bahasa: number
+  english: number
+}
+
 export interface User {
   id: string
   username: string
-  elo: number
-  created_at: string
+  elo: SubjectElo
+  preferredSubject?: keyof SubjectElo
+  placementTestCompleted: boolean
+  createdAt: Date
 }
 
 export interface QuizQuestion {

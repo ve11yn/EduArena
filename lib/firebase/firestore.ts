@@ -13,12 +13,17 @@ import {
   Timestamp,
   writeBatch,
 } from "firebase/firestore"
+import type { SubjectElo } from "./auth"
+
+export type { SubjectElo } from "./auth"
 
 export interface User {
   id: string
   username: string
   email: string
-  elo: number
+  elo: SubjectElo
+  preferredSubject?: keyof SubjectElo
+  placementTestCompleted: boolean
   createdAt: Date
 }
 
@@ -100,9 +105,16 @@ export const getAllUsers = async (): Promise<User[]> => {
   }
 }
 
-export const updateUserElo = async (uid: string, newElo: number) => {
+export const updateUserElo = async (uid: string, subject: keyof SubjectElo, newElo: number) => {
   try {
-    await updateDoc(doc(db, "users", uid), { elo: newElo })
+    const userRef = doc(db, "users", uid)
+    const userDoc = await getDoc(userRef)
+    
+    if (userDoc.exists()) {
+      const userData = userDoc.data() as User
+      const updatedElo = { ...userData.elo, [subject]: newElo }
+      await updateDoc(userRef, { elo: updatedElo })
+    }
   } catch (error) {
     throw error
   }
@@ -164,7 +176,13 @@ export const getDuelWithUsers = async (duelId: string): Promise<DuelWithUsers | 
   }
 }
 
-export const findWaitingDuel = async (topic: string, difficulty: string, currentUserId: string, userElo: number) => {
+export const findWaitingDuel = async (
+  topic: string, 
+  difficulty: string, 
+  currentUserId: string, 
+  userElo: number,
+  subject: keyof SubjectElo
+) => {
   try {
     const duelsQuery = query(
       collection(db, "duels"),
@@ -180,14 +198,17 @@ export const findWaitingDuel = async (topic: string, difficulty: string, current
       const duelData = docSnapshot.data()
       if (duelData.player1Id === currentUserId) continue
 
-      // Get player1 data to check ELO
+      // Get player1 data to check ELO for the specific subject
       const player1 = await getUserById(duelData.player1Id)
-      if (player1 && Math.abs(player1.elo - userElo) <= 100) {
-        return {
-          id: docSnapshot.id,
-          ...duelData,
-          createdAt: duelData.createdAt.toDate(),
-        } as Duel
+      if (player1) {
+        const player1Elo = player1.elo[subject]
+        if (Math.abs(player1Elo - userElo) <= 100) {
+          return {
+            id: docSnapshot.id,
+            ...duelData,
+            createdAt: duelData.createdAt.toDate(),
+          } as Duel
+        }
       }
     }
 
@@ -233,27 +254,44 @@ export const subscribeToDuel = (duelId: string, callback: (duel: Duel | null) =>
   })
 }
 
-export const updateUsersElo = async (player1Id: string, player2Id: string, player1Elo: number, player2Elo: number) => {
+export const updateUsersElo = async (
+  player1Id: string, 
+  player2Id: string, 
+  subject: keyof SubjectElo,
+  player1Elo: number, 
+  player2Elo: number
+) => {
   try {
     const batch = writeBatch(db)
 
-    batch.update(doc(db, "users", player1Id), { elo: player1Elo })
-    batch.update(doc(db, "users", player2Id), { elo: player2Elo })
+    // Get current user data to update specific subject ELO
+    const player1Doc = await getDoc(doc(db, "users", player1Id))
+    const player2Doc = await getDoc(doc(db, "users", player2Id))
 
-    await batch.commit()
+    if (player1Doc.exists() && player2Doc.exists()) {
+      const player1Data = player1Doc.data() as User
+      const player2Data = player2Doc.data() as User
+
+      const updatedPlayer1Elo = { ...player1Data.elo, [subject]: player1Elo }
+      const updatedPlayer2Elo = { ...player2Data.elo, [subject]: player2Elo }
+
+      batch.update(doc(db, "users", player1Id), { elo: updatedPlayer1Elo })
+      batch.update(doc(db, "users", player2Id), { elo: updatedPlayer2Elo })
+
+      await batch.commit()
+    }
   } catch (error) {
     throw error
   }
 }
 
-export const getTopUsers = async (limit: number = 10): Promise<User[]> => {
+export const getTopUsers = async (limit: number = 10, subject?: keyof SubjectElo): Promise<User[]> => {
   try {
-    const usersQuery = query(
-      collection(db, "users"), 
-      orderBy("elo", "desc")
-    )
+    // Get all users and sort by the specified subject or overall ELO in memory
+    const usersQuery = query(collection(db, "users"))
     const querySnapshot = await getDocs(usersQuery)
-    return querySnapshot.docs.slice(0, limit).map((doc) => {
+    
+    const users = querySnapshot.docs.map((doc) => {
       const data = doc.data()
       return {
         id: doc.id,
@@ -261,38 +299,31 @@ export const getTopUsers = async (limit: number = 10): Promise<User[]> => {
         createdAt: data.createdAt.toDate(),
       } as User
     })
+
+    // Sort by subject ELO or overall ELO
+    users.sort((a, b) => {
+      const aElo = subject ? a.elo[subject] : getUserEloForSubject(a.elo)
+      const bElo = subject ? b.elo[subject] : getUserEloForSubject(b.elo)
+      return bElo - aElo
+    })
+
+    return users.slice(0, limit)
   } catch (error) {
     console.error("Error getting top users:", error)
     return []
   }
 }
 
-export const getUserRank = async (userId: string): Promise<number> => {
+export const getUserRank = async (userId: string, subject?: keyof SubjectElo): Promise<number> => {
   try {
     const user = await getUserById(userId)
     if (!user) return 0
 
-    const usersQuery = query(
-      collection(db, "users"), 
-      where("elo", ">", user.elo),
-      orderBy("elo", "desc")
-    )
+    // Get all users and calculate rank in memory
+    const usersQuery = query(collection(db, "users"))
     const querySnapshot = await getDocs(usersQuery)
-    return querySnapshot.docs.length + 1
-  } catch (error) {
-    console.error("Error getting user rank:", error)
-    return 0
-  }
-}
-
-export const subscribeToLeaderboard = (limit: number = 10, callback: (users: User[]) => void) => {
-  const usersQuery = query(
-    collection(db, "users"), 
-    orderBy("elo", "desc")
-  )
-
-  return onSnapshot(usersQuery, (querySnapshot) => {
-    const users = querySnapshot.docs.slice(0, limit).map((doc) => {
+    
+    const users = querySnapshot.docs.map((doc) => {
       const data = doc.data()
       return {
         id: doc.id,
@@ -300,11 +331,47 @@ export const subscribeToLeaderboard = (limit: number = 10, callback: (users: Use
         createdAt: data.createdAt.toDate(),
       } as User
     })
-    callback(users)
+
+    const userElo = subject ? user.elo[subject] : getUserEloForSubject(user.elo)
+    
+    // Count users with higher ELO
+    const higherEloUsers = users.filter(u => {
+      const uElo = subject ? u.elo[subject] : getUserEloForSubject(u.elo)
+      return uElo > userElo
+    })
+
+    return higherEloUsers.length + 1
+  } catch (error) {
+    console.error("Error getting user rank:", error)
+    return 0
+  }
+}
+
+export const subscribeToLeaderboard = (callback: (users: User[]) => void, limit: number = 10, subject?: keyof SubjectElo) => {
+  const usersQuery = query(collection(db, "users"))
+
+  return onSnapshot(usersQuery, (querySnapshot) => {
+    const users = querySnapshot.docs.map((doc) => {
+      const data = doc.data()
+      return {
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt.toDate(),
+      } as User
+    })
+
+    // Sort by subject ELO or overall ELO
+    users.sort((a, b) => {
+      const aElo = subject ? a.elo[subject] : getUserEloForSubject(a.elo)
+      const bElo = subject ? b.elo[subject] : getUserEloForSubject(b.elo)
+      return bElo - aElo
+    })
+
+    callback(users.slice(0, limit))
   })
 }
 
-export const getLeaderboardStats = async () => {
+export const getLeaderboardStats = async (subject?: keyof SubjectElo) => {
   try {
     const usersQuery = query(collection(db, "users"))
     const querySnapshot = await getDocs(usersQuery)
@@ -315,9 +382,10 @@ export const getLeaderboardStats = async () => {
     
     querySnapshot.docs.forEach((doc) => {
       const user = doc.data() as User
-      totalElo += user.elo
-      if (user.elo > highestElo) {
-        highestElo = user.elo
+      const userElo = subject ? user.elo[subject] : getUserEloForSubject(user.elo)
+      totalElo += userElo
+      if (userElo > highestElo) {
+        highestElo = userElo
       }
     })
     
@@ -334,4 +402,18 @@ export const getLeaderboardStats = async () => {
       highestElo: 0
     }
   }
+}
+
+// Helper function to get ELO for a specific subject or overall average
+export const getUserEloForSubject = (userElo: SubjectElo, subject?: keyof SubjectElo): number => {
+  if (subject) {
+    return userElo[subject]
+  }
+  // Return average if no subject specified
+  return Math.round((userElo.math + userElo.bahasa + userElo.english) / 3)
+}
+
+// Helper function to get the highest ELO across all subjects
+export const getHighestElo = (userElo: SubjectElo): number => {
+  return Math.max(userElo.math, userElo.bahasa, userElo.english)
 }

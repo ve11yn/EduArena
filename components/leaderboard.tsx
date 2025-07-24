@@ -9,19 +9,22 @@ import {
 } from "@/lib/firebase/firestore"
 import { Trophy, Crown, Medal, Award, TrendingUp, Users, Zap } from "lucide-react"
 import type { User } from "@/lib/firebase/firestore"
+import type { SubjectElo } from "@/lib/firebase/auth"
 
 interface LeaderboardProps {
   currentUserId?: string
   limit?: number
   showStats?: boolean
   className?: string
+  subject?: keyof SubjectElo | 'overall'
 }
 
 export default function Leaderboard({ 
   currentUserId, 
   limit = 10, 
   showStats = true,
-  className = ""
+  className = "",
+  subject = 'overall'
 }: LeaderboardProps) {
   const [topUsers, setTopUsers] = useState<User[]>([])
   const [stats, setStats] = useState({
@@ -31,12 +34,22 @@ export default function Leaderboard({
   })
   const [loading, setLoading] = useState(true)
 
+  // Helper function to get ELO for the current subject
+  const getPlayerElo = (player: User): number => {
+    if (subject === 'overall') {
+      // Return average ELO for overall ranking
+      return Math.round((player.elo.math + player.elo.bahasa + player.elo.english) / 3)
+    }
+    return player.elo[subject as keyof SubjectElo]
+  }
+
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
+        const subjectParam = subject === 'overall' ? undefined : subject as keyof SubjectElo
         const [users, leaderboardStats] = await Promise.all([
-          getTopUsers(limit),
-          showStats ? getLeaderboardStats() : Promise.resolve({
+          getTopUsers(limit, subjectParam),
+          showStats ? getLeaderboardStats(subjectParam) : Promise.resolve({
             totalPlayers: 0,
             averageElo: 0,
             highestElo: 0
@@ -55,12 +68,13 @@ export default function Leaderboard({
     fetchInitialData()
 
     // Subscribe to real-time updates
-    const unsubscribe = subscribeToLeaderboard(limit, (users) => {
+    const subjectParam = subject === 'overall' ? undefined : subject as keyof SubjectElo
+    const unsubscribe = subscribeToLeaderboard((users) => {
       setTopUsers(users)
-    })
+    }, limit, subjectParam)
 
     return () => unsubscribe()
-  }, [limit, showStats])
+  }, [limit, showStats, subject])
 
   const getEloColor = (elo: number) => {
     if (elo >= 1200) return "text-yellow-400"
@@ -182,11 +196,11 @@ export default function Leaderboard({
               </div>
             </div>
             <div className="text-right">
-              <div className={`font-pixel text-lg ${getEloColor(player.elo)}`}>
-                {player.elo}
+              <div className={`font-pixel text-lg ${getEloColor(getPlayerElo(player))}`}>
+                {getPlayerElo(player)}
               </div>
               <div className="font-terminal text-xs text-cyan-300">
-                {getRankTitle(player.elo)}
+                {getRankTitle(getPlayerElo(player))}
               </div>
             </div>
           </motion.div>
