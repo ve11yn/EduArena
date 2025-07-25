@@ -118,16 +118,23 @@ export const startGame = async (config: GameConfig, currentUser: User, userToken
 
       const userElo = getUserEloForSubject(currentUser.elo, subject as any)
 
-      // Connect to socket server
+      // Connect to socket server and wait for connection
       const socket = socketClient.connect()
 
-      // Join matchmaking queue
-      socketClient.emit("join-queue", {
-        userId: currentUser.id,
-        subject,
-        userElo,
-        username: currentUser.username,
-      })
+      // Use the enhanced emit method that waits for connection
+      try {
+        console.log("⏳ Waiting for socket connection...")
+        await socketClient.emitWhenConnected("join-queue", {
+          userId: currentUser.id,
+          subject,
+          userElo,
+          username: currentUser.username,
+        })
+        console.log("✅ Successfully joined queue")
+      } catch (error) {
+        console.error("❌ Failed to join queue:", error)
+        throw new Error("Failed to connect to matchmaking server")
+      }
 
       return {
         success: true,

@@ -53,9 +53,14 @@ class SocketClient {
         : "http://localhost:3001", 
       {
       transports: ["websocket", "polling"],
-      timeout: 20000,
-      forceNew: true,
+      timeout: 30000,
+      forceNew: false, // Allow reusing connections
       autoConnect: true,
+      upgrade: true,
+      rememberUpgrade: true,
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
     })
 
     this.socket.on("connect", () => {
@@ -120,6 +125,37 @@ class SocketClient {
         }, 1000)
       }
     }
+  }
+
+  // Enhanced emit that waits for connection
+  async emitWhenConnected<K extends keyof SocketEvents>(event: K, ...args: Parameters<SocketEvents[K]>): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (this.socket?.connected) {
+        this.socket.emit(event, ...args)
+        resolve()
+        return
+      }
+
+      // Connect and wait for connection
+      this.connect()
+      
+      const checkConnection = () => {
+        if (this.socket?.connected) {
+          this.socket.emit(event, ...args)
+          resolve()
+        } else {
+          setTimeout(checkConnection, 100)
+        }
+      }
+
+      // Start checking after a brief delay
+      setTimeout(checkConnection, 100)
+      
+      // Timeout after 5 seconds
+      setTimeout(() => {
+        reject(new Error(`Failed to connect socket for event: ${event}`))
+      }, 5000)
+    })
   }
 
   on<K extends keyof SocketEvents>(event: K, callback: SocketEvents[K]) {
