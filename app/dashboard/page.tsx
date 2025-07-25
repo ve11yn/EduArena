@@ -236,6 +236,16 @@ export default function DashboardPage() {
                     PROFILE
                   </motion.button>
                 </Link>
+                <Link href="/chatbot" className="relative z-10">
+                  <motion.button
+                    whileHover={{ scale: 1.05, y: -2 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="bg-blue-400/20 border-2 border-blue-400 text-blue-400 font-pixel px-6 py-3 text-sm tracking-wider hover:bg-blue-400/30 transition-colors relative z-10"
+                    style={{ pointerEvents: 'auto' }}
+                  >
+                    🤖 AI TUTOR
+                  </motion.button>
+                </Link>
               </div>
             </div>
           </div>
