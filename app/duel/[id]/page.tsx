@@ -39,6 +39,52 @@ export default function DuelPage({ params }: DuelPageProps) {
   const { user, userProfile, refreshUserProfile } = useAuth()
   const router = useRouter()
 
+  const fallbackToFirebase = useCallback(() => {
+    console.log("🔥 Falling back to Firebase mode")
+    fetchDuel()
+
+    // Subscribe to real-time updates for Firebase games
+    const unsubscribe = subscribeToDuel(params.id, (updatedDuel) => {
+      if (updatedDuel) {
+        setDuel((prev) => {
+          if (!prev) return null
+
+          // Check if question index changed (next question)
+          if (prev.currentQuestionIndex !== updatedDuel.currentQuestionIndex) {
+            setShowNextQuestion(true)
+            resetForNextQuestion()
+
+            // Hide next question indicator after 2 seconds
+            setTimeout(() => setShowNextQuestion(false), 2000)
+          }
+
+          // Check if bot answered (for training mode)
+          if (
+            updatedDuel.isTraining &&
+            updatedDuel.player2Answers &&
+            updatedDuel.player2Answers[updatedDuel.currentQuestionIndex] !== undefined &&
+            waitingForBot
+          ) {
+            setWaitingForBot(false)
+          }
+
+          return {
+            ...updatedDuel,
+            player1: prev.player1,
+            player2: prev.player2,
+          }
+        })
+
+        // Start timer when both players are present and quiz is ready
+        if (updatedDuel.status === "in_progress" && updatedDuel.quizData && !startTime) {
+          setStartTime(Date.now())
+        }
+      }
+    })
+
+    return () => unsubscribe()
+  }, [params.id, startTime, waitingForBot])
+
   const fetchDuel = useCallback(async () => {
     try {
       const duelData = await getDuelWithUsers(params.id)
@@ -101,12 +147,14 @@ export default function DuelPage({ params }: DuelPageProps) {
       
       // Set a timeout to fallback to Firebase if socket doesn't work
       const socketTimeout = setTimeout(() => {
-        console.log("⚠️ Socket timeout, falling back to Firebase...")
-        if (!socketConnected) {
+        console.log("⚠️ Socket timeout (30s), checking if game started...")
+        // Only fallback if we haven't received game-start yet
+        if (!duel) {
+          console.log("⚠️ No duel data received after 30s, falling back to Firebase...")
           setIsSocketGame(false)
           fallbackToFirebase()
         }
-      }, 5000)
+      }, 30000) // Increased timeout to 30 seconds for AI quiz generation
       
       return () => {
         clearTimeout(socketTimeout)
@@ -115,52 +163,7 @@ export default function DuelPage({ params }: DuelPageProps) {
       console.log("❌ No socket available, using Firebase...")
       fallbackToFirebase()
     }
-
-    function fallbackToFirebase() {
-      fetchDuel()
-
-      // Subscribe to real-time updates for Firebase games
-      const unsubscribe = subscribeToDuel(params.id, (updatedDuel) => {
-        if (updatedDuel) {
-          setDuel((prev) => {
-            if (!prev) return null
-
-            // Check if question index changed (next question)
-            if (prev.currentQuestionIndex !== updatedDuel.currentQuestionIndex) {
-              setShowNextQuestion(true)
-              resetForNextQuestion()
-
-              // Hide next question indicator after 2 seconds
-              setTimeout(() => setShowNextQuestion(false), 2000)
-            }
-
-            // Check if bot answered (for training mode)
-            if (
-              updatedDuel.isTraining &&
-              updatedDuel.player2Answers &&
-              updatedDuel.player2Answers[updatedDuel.currentQuestionIndex] !== undefined &&
-              waitingForBot
-            ) {
-              setWaitingForBot(false)
-            }
-
-            return {
-              ...updatedDuel,
-              player1: prev.player1,
-              player2: prev.player2,
-            }
-          })
-
-          // Start timer when both players are present and quiz is ready
-          if (updatedDuel.status === "in_progress" && updatedDuel.quizData && !startTime) {
-            setStartTime(Date.now())
-          }
-        }
-      })
-
-      return () => unsubscribe()
-    }
-  }, [user, userProfile, router, params.id, socketConnected])
+  }, [user, userProfile, router, params.id, socketConnected, fallbackToFirebase])
 
   // Add socket listeners function
   const setupSocketListeners = () => {
@@ -169,8 +172,14 @@ export default function DuelPage({ params }: DuelPageProps) {
 
     console.log("🎧 Setting up socket listeners for duel page")
 
+    socket.on("quiz-generation-started", (data) => {
+      console.log("📝 Quiz generation started:", data)
+      // This will trigger a re-render with better loading message
+    })
+
     socket.on("game-start", (data) => {
       console.log("🚀 Socket game started:", data)
+      console.log("📝 Quiz data received:", data.quizData?.length, "questions")
       setDuel({
         id: params.id,
         player1Id: userProfile!.id,
@@ -269,6 +278,14 @@ export default function DuelPage({ params }: DuelPageProps) {
     socket.on("error", (error) => {
       console.error("🔌 Socket error:", error)
       setError(error)
+      // If socket error occurs, fallback to Firebase
+      setIsSocketGame(false)
+      fallbackToFirebase()
+    })
+
+    // Add a general listener to see what events are being received
+    socket.onAny((eventName, ...args) => {
+      console.log("📡 Socket event received:", eventName, args)
     })
   }
 
@@ -540,14 +557,33 @@ export default function DuelPage({ params }: DuelPageProps) {
   if (!duel || !userProfile) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="font-pixel text-2xl text-red-400 mb-4">BATTLE NOT FOUND</h1>
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="retro-button font-pixel text-slate-900 px-6 py-3"
-          >
-            RETURN TO BASE
-          </button>
+        <div className="text-center bg-slate-800/80 border-2 border-cyan-400 p-8 max-w-md">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 2, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
+            className="w-16 h-16 border-4 border-cyan-400 border-t-transparent rounded-full mx-auto mb-6"
+          />
+          {isSocketGame ? (
+            <>
+              <h1 className="font-pixel text-xl text-cyan-400 mb-4">PREPARING BATTLE</h1>
+              <p className="font-terminal text-cyan-300 mb-4">
+                Generating AI questions...
+              </p>
+              <p className="font-terminal text-xs text-slate-400">
+                This may take up to 30 seconds
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="font-pixel text-2xl text-red-400 mb-4">BATTLE NOT FOUND</h1>
+              <button
+                onClick={() => router.push("/dashboard")}
+                className="retro-button font-pixel text-slate-900 px-6 py-3"
+              >
+                RETURN TO BASE
+              </button>
+            </>
+          )}
         </div>
       </div>
     )

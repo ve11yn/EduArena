@@ -178,11 +178,29 @@ class SocketGameServer {
   private async createGameSession(player1: Player, player2: Player, subject: string) {
     try {
       console.log("🎮 Creating game session...")
+      const startTime = Date.now()
+
+      // Notify players that quiz generation has started
+      const p1Socket = this.io.sockets.sockets.get(player1.socketId)
+      const p2Socket = this.io.sockets.sockets.get(player2.socketId)
+      
+      p1Socket?.emit("quiz-generation-started", { 
+        message: "Generating AI questions...",
+        estimatedTime: "15-30 seconds"
+      })
+      p2Socket?.emit("quiz-generation-started", { 
+        message: "Generating AI questions...",
+        estimatedTime: "15-30 seconds"
+      })
 
       // Generate quiz questions using Gemini
       console.log("📝 Generating quiz questions for subject:", subject)
+      console.log("⏱️ Quiz generation started at:", new Date().toISOString())
+      
       const quizData = await generateGeminiQuizQuestions(subject, "intermediate", 5)
-      console.log("📝 Generated quiz questions:", quizData.length)
+      
+      const generationTime = Date.now() - startTime
+      console.log(`📝 Generated quiz questions: ${quizData.length} questions in ${generationTime}ms`)
       
       if (!quizData || quizData.length === 0) {
         throw new Error("No quiz questions were generated")

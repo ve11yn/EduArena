@@ -8,7 +8,7 @@ export interface SocketEvents {
   "queue-status": (data: { position: number; playersInQueue: number }) => void
 
   // Game events
-  "join-game": (duelId: string) => void
+  "join-game": (data: { duelId: string; userId: string }) => void
   "game-start": (data: { quizData: any[]; currentQuestion: any }) => void
   "player-answer": (data: { answer: string; timeElapsed: number }) => void
   "opponent-answered": () => void
