@@ -69,6 +69,11 @@ class SocketGameServer {
         this.handleJoinGame(socket, data)
       })
 
+      socket.on("test-connection", (data) => {
+        console.log("🧪 Test connection received:", data)
+        socket.emit("test-response", { message: "Server received test" })
+      })
+
       socket.on("player-answer", async (data) => {
         await this.handlePlayerAnswer(socket, data)
       })
@@ -249,27 +254,31 @@ class SocketGameServer {
       this.playerSessions.set(player1.socketId, duelId)
       this.playerSessions.set(player2.socketId, duelId)
 
-      // Notify players
-      const player1Socket = this.io.sockets.sockets.get(player1.socketId)
-      const player2Socket = this.io.sockets.sockets.get(player2.socketId)
-
-      if (player1Socket) {
-        player1Socket.emit("match-found", {
-          duelId,
-          opponent: { username: player2.username, elo: player2.userElo },
-          isPlayer1: true,
-        })
-      }
-
-      if (player2Socket) {
-        player2Socket.emit("match-found", {
-          duelId,
-          opponent: { username: player1.username, elo: player1.userElo },
-          isPlayer1: false,
-        })
-      }
-
       console.log("🎮 Game session created, waiting for both players to join...")
+      console.log("📊 Session stored with ID:", duelId)
+      console.log("📊 Total active sessions:", this.activeSessions.size)
+
+      // Notify players (with a small delay to ensure session is fully stored)
+      setTimeout(() => {
+        const player1Socket = this.io.sockets.sockets.get(player1.socketId)
+        const player2Socket = this.io.sockets.sockets.get(player2.socketId)
+
+        if (player1Socket) {
+          player1Socket.emit("match-found", {
+            duelId,
+            opponent: { username: player2.username, elo: player2.userElo },
+            isPlayer1: true,
+          })
+        }
+
+        if (player2Socket) {
+          player2Socket.emit("match-found", {
+            duelId,
+            opponent: { username: player1.username, elo: player1.userElo },
+            isPlayer1: false,
+          })
+        }
+      }, 100) // Small delay to ensure everything is set up
     } catch (error) {
       console.error("❌ Error creating game session:", error)
       console.error("❌ Error details:", {
@@ -328,9 +337,17 @@ class SocketGameServer {
   }
 
   private handleJoinGame(socket: any, data: { duelId: string; userId: string }) {
+    console.log("🎮 handleJoinGame called:", { 
+      duelId: data.duelId, 
+      userId: data.userId,
+      activeSessions: Array.from(this.activeSessions.keys()),
+      totalSessions: this.activeSessions.size
+    })
+
     const session = this.activeSessions.get(data.duelId)
     if (!session) {
       console.log("❌ Game session not found for duel:", data.duelId)
+      console.log("📊 Available sessions:", Array.from(this.activeSessions.keys()))
       socket.emit("error", "Game session not found")
       return
     }
@@ -338,7 +355,9 @@ class SocketGameServer {
     console.log("🎮 Player attempting to join game:", { 
       duelId: data.duelId, 
       userId: data.userId,
-      sessionExists: !!session 
+      sessionExists: !!session,
+      player1Id: session.player1.userId,
+      player2Id: session.player2.userId
     })
 
     // Update socket mapping in case of reconnection

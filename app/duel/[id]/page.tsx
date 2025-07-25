@@ -132,6 +132,8 @@ export default function DuelPage({ params }: DuelPageProps) {
       
       if (socket.connected) {
         console.log("✅ Socket already connected, joining game immediately")
+        console.log("🎯 Attempting to join duel ID:", params.id)
+        console.log("👤 User ID:", userProfile.id)
         setSocketConnected(true)
         // Join game immediately if already connected
         socketClient.emit("join-game", { duelId: params.id, userId: userProfile.id })
@@ -140,6 +142,8 @@ export default function DuelPage({ params }: DuelPageProps) {
         // Wait for connection
         socket.on("connect", () => {
           console.log("✅ Socket connected, joining game")
+          console.log("🎯 Attempting to join duel ID:", params.id)
+          console.log("👤 User ID:", userProfile.id)
           setSocketConnected(true)
           socketClient.emit("join-game", { duelId: params.id, userId: userProfile.id })
         })
@@ -168,9 +172,28 @@ export default function DuelPage({ params }: DuelPageProps) {
   // Add socket listeners function
   const setupSocketListeners = () => {
     const socket = socketClient.getSocket()
-    if (!socket) return
+    if (!socket) {
+      console.error("❌ No socket available for setting up listeners")
+      return
+    }
 
     console.log("🎧 Setting up socket listeners for duel page")
+    console.log("🔌 Socket connected?", socket.connected)
+    console.log("🔌 Socket ID:", socket.id)
+
+    // Remove any existing listeners first to avoid duplicates
+    socket.off("quiz-generation-started")
+    socket.off("game-start")
+    socket.off("opponent-answered")
+    socket.off("question-result")
+    socket.off("next-question")
+    socket.off("game-end")
+    socket.off("error")
+    socket.off("test-response")
+
+    socket.on("test-response", (data) => {
+      console.log("🧪 Test response received:", data)
+    })
 
     socket.on("quiz-generation-started", (data) => {
       console.log("📝 Quiz generation started:", data)
@@ -287,6 +310,10 @@ export default function DuelPage({ params }: DuelPageProps) {
     socket.onAny((eventName, ...args) => {
       console.log("📡 Socket event received:", eventName, args)
     })
+
+    // Test that listeners are working
+    console.log("🧪 Testing socket listeners setup...")
+    socket.emit("test-connection", { message: "Testing from duel page" })
   }
 
   // Add beforeunload event to refresh profile when navigating away
