@@ -1,4 +1,4 @@
-# 🎓 LCAS Jr - ELO Quiz Battle System
+# 🎓 LCAS Jr - EDUARENA
 
 An interactive, real-time quiz platform built with **Next.js**, featuring **Duolingo-style training**, competitive **PvP battles**, and **AI-generated questions**. Powered by **Firebase** and **Gemini AI**.
 
