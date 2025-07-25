@@ -21,8 +21,7 @@ export default function Chat() {
   ])
   const [isLoading, setIsLoading] = useState<boolean>(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  // New state for controlling quick commands visibility
-  const [showQuickCommands, setShowQuickCommands] = useState<boolean>(true) // Start visible
+  const [showQuickCommands, setShowQuickCommands] = useState<boolean>(true) 
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -238,17 +237,16 @@ export default function Chat() {
         animate={{ opacity: 1, y: 0 }}
         className="p-6 bg-retro-dark border-t-2 border-cyan-400 shadow-lg shadow-cyan-400/20"
       >
-        {/* Toggle button for Quick Commands */}
         <div className="flex items-center justify-center mb-6">
           <button
             onClick={toggleQuickCommands}
             className="flex items-center gap-3 font-pixel text-lg text-pink-400 tracking-wider cursor-pointer hover:text-cyan-400 transition-colors"
           >
             <Gamepad2 className="w-6 h-6" />
-            <h3>QUICK COMMANDS</h3>
+            <h4 className="text-sm">QUICK COMMANDS</h4>
             <motion.div
               initial={false}
-              animate={{ rotate: showQuickCommands ? 180 : 0 }} // Rotate icon
+              animate={{ rotate: showQuickCommands ? 180 : 0 }}
               transition={{ duration: 0.3 }}
             >
               {showQuickCommands ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
@@ -256,16 +254,15 @@ export default function Chat() {
           </button>
         </div>
 
-        {/* Conditionally render and animate the quick commands */}
         <AnimatePresence>
           {showQuickCommands && !isLoading && (
             <motion.div
-              key="quick-commands" // Unique key for AnimatePresence
+              key="quick-commands"
               initial={{ opacity: 0, height: 0, overflow: 'hidden' }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.3 }}
-              className="mb-6" // Retain margin-bottom when visible
+              className="mb-6" 
             >
               <div className="flex flex-wrap justify-center gap-3">
                 {suggestedPrompts.map((prompt, index) => {

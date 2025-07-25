@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth-context"
 import { signOutUser } from "@/lib/firebase/auth"
 import { useLeaderboard, getEloColor, getRankTitle } from "@/hooks/use-leaderboard"
 import { getUserEloForSubject, subscribeToUserProfile, type User as FirebaseUser } from "@/lib/firebase/firestore"
-import { Trophy, TrendingUp, Users, LogOut, Gamepad2, Crown, Medal, Award, User, Heart } from "lucide-react"
+import { Trophy, TrendingUp, Users, LogOut, Gamepad2, Crown, Medal, Award, User, Heart, Bot } from "lucide-react"
 import Link from "next/link"
 
 export default function DashboardPage() {
@@ -23,10 +23,8 @@ export default function DashboardPage() {
   const [realtimeUserProfile, setRealtimeUserProfile] = useState<FirebaseUser | null>(null)
   const router = useRouter()
 
-  // Helper function to get display ELO (now returns average ELO)
   const getDisplayElo = (userElo: any) => {
-    if (typeof userElo === 'number') return userElo // Legacy support
-    // Return average ELO across all subjects
+    if (typeof userElo === 'number') return userElo 
     return Math.round((userElo.math + userElo.bahasa + userElo.english) / 3)
   }
 
@@ -38,7 +36,6 @@ export default function DashboardPage() {
       return
     }
 
-    // Refresh user profile to get latest data (especially lives)
     if (refreshUserProfile) {
       refreshUserProfile()
     }
@@ -240,10 +237,11 @@ export default function DashboardPage() {
                   <motion.button
                     whileHover={{ scale: 1.05, y: -2 }}
                     whileTap={{ scale: 0.95 }}
-                    className="bg-blue-400/20 border-2 border-blue-400 text-blue-400 font-pixel px-6 py-3 text-sm tracking-wider hover:bg-blue-400/30 transition-colors relative z-10"
+                    className="flex gap-2 bg-blue-400/20 border-2 border-blue-400 text-blue-400 font-pixel px-6 py-3 text-sm tracking-wider hover:bg-blue-400/30 transition-colors relative z-10"
                     style={{ pointerEvents: 'auto' }}
                   >
-                    🤖 AI TUTOR
+                    <Bot/>
+                    AI TUTOR
                   </motion.button>
                 </Link>
               </div>
