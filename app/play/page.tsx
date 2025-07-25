@@ -14,7 +14,6 @@ const subjects = [
   { id: "english", name: "ENGLISH", icon: "🗣️", color: "purple" },
 ]
 
-// Training levels structure with progress tracking (lives are now global)
 const trainingLevels = {
   math: [
     { id: 1, name: "Basic Addition", difficulty: "beginner", unlocked: true, completed: false, description: "Learn simple addition", progress: 0, totalQuestions: 15 },

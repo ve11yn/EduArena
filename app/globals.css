@@ -10,8 +10,31 @@
     --retro-green: #00ff00;
     --retro-red: #ff0040;
     --retro-blue: #0080ff;
+
+    /* Dark theme (default) */
     --retro-dark: #1a1a2e;
     --retro-darker: #16213e;
+    --retro-bg-primary: #1a1a2e;
+    --retro-bg-secondary: #16213e;
+    --retro-text-primary: #00ffff;
+    --retro-text-secondary: #ffffff;
+    --retro-border: #00ffff;
+  }
+
+  [data-theme="light"] {
+    /* Light theme */
+    --retro-dark: #f0f0f0;
+    --retro-darker: #ffffff;
+    --retro-bg-primary: #ffffff;
+    --retro-bg-secondary: #f8f9fa;
+    --retro-text-primary: #1a1a2e;
+    --retro-text-secondary: #333333;
+    --retro-border: #00ffff;
+
+    /* Adjust retro colors for light mode */
+    --retro-cyan: #0099cc;
+    --retro-pink: #cc0099;
+    --retro-blue: #0066cc;
   }
 
   * {
@@ -19,8 +42,11 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
     font-family: var(--font-vt323);
+    background-color: var(--retro-bg-primary);
+    color: var(--retro-text-primary);
+    transition: background-color 0.3s ease, color 0.3s ease;
   }
 
   .font-pixel {
@@ -32,11 +58,11 @@
   }
 }
 
-/* Retro button styles */
+/* Theme-aware retro button styles */
 .retro-button {
   @apply relative overflow-hidden;
-  background: linear-gradient(45deg, #00ffff, #0080ff);
-  border: 3px solid #00ffff;
+  background: linear-gradient(45deg, var(--retro-cyan), var(--retro-blue));
+  border: 3px solid var(--retro-cyan);
   box-shadow: 0 0 10px rgba(0, 255, 255, 0.5), inset 0 0 10px rgba(0, 255, 255, 0.2);
   text-shadow: 0 0 10px rgba(0, 255, 255, 0.8);
   transition: all 0.3s ease;
@@ -44,28 +70,35 @@
   position: relative;
 }
 
+[data-theme="light"] .retro-button {
+  box-shadow: 0 0 10px rgba(0, 153, 204, 0.5), inset 0 0 10px rgba(0, 153, 204, 0.2);
+  text-shadow: 0 0 10px rgba(0, 153, 204, 0.8);
+}
+
 .retro-button:hover {
   box-shadow: 0 0 20px rgba(0, 255, 255, 0.8), inset 0 0 20px rgba(0, 255, 255, 0.3);
   transform: translateY(-2px);
 }
 
-/* Utility classes for z-index management */
-.z-button {
-  z-index: 50 !important;
-  position: relative !important;
-  pointer-events: auto !important;
+[data-theme="light"] .retro-button:hover {
+  box-shadow: 0 0 20px rgba(0, 153, 204, 0.8), inset 0 0 20px rgba(0, 153, 204, 0.3);
 }
 
-.z-interactive {
-  z-index: 40 !important;
-  position: relative !important;
+/* Theme toggle specific styles */
+.theme-toggle {
+  @apply relative overflow-hidden;
+  background: linear-gradient(45deg, var(--retro-pink), var(--retro-yellow));
+  border: 2px solid var(--retro-pink);
+  box-shadow: 0 0 8px rgba(255, 0, 255, 0.4), inset 0 0 8px rgba(255, 0, 255, 0.2);
+  transition: all 0.3s ease;
 }
 
-.z-background {
-  z-index: 0 !important;
-  pointer-events: none !important;
+.theme-toggle:hover {
+  box-shadow: 0 0 15px rgba(255, 0, 255, 0.6), inset 0 0 15px rgba(255, 0, 255, 0.3);
+  transform: scale(1.05);
 }
 
+/* Rest of the existing styles remain the same */
 .retro-button::before {
   content: "";
   position: absolute;
@@ -81,16 +114,10 @@
   left: 100%;
 }
 
-/* Pixel border effect */
-.pixel-border {
-  border-image: url("data:image/svg+xml,%3csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='m0 0h100v100h-100z' fill='none' stroke='%2300ffff' stroke-width='3'/%3e%3c/svg%3e")
-    3;
-}
-
-/* Glitch text effect */
+/* Glitch text effect - theme aware */
 .glitch {
   position: relative;
-  color: #00ffff;
+  color: var(--retro-cyan);
   font-size: 2rem;
   font-weight: bold;
   text-transform: uppercase;
@@ -109,13 +136,13 @@
 
 .glitch::before {
   animation: glitch-1 0.5s infinite;
-  color: #ff00ff;
+  color: var(--retro-pink);
   z-index: -1;
 }
 
 .glitch::after {
   animation: glitch-2 0.5s infinite;
-  color: #ffff00;
+  color: var(--retro-yellow);
   z-index: -2;
 }
 
@@ -176,34 +203,28 @@
   }
 }
 
-/* Custom scrollbar */
+/* Custom scrollbar - theme aware */
 ::-webkit-scrollbar {
   width: 12px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #1a1a2e;
-  border: 2px solid #00ffff;
+  background: var(--retro-bg-primary);
+  border: 2px solid var(--retro-cyan);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(45deg, #00ffff, #ff00ff);
-  border: 1px solid #00ffff;
+  background: linear-gradient(45deg, var(--retro-cyan), var(--retro-pink));
+  border: 1px solid var(--retro-cyan);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(45deg, #ff00ff, #ffff00);
+  background: linear-gradient(45deg, var(--retro-pink), var(--retro-yellow));
 }
+
 .pixel-art {
   image-rendering: -moz-crisp-edges;
   image-rendering: -webkit-crisp-edges;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
-}
-
-* {
-  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow,
-    transform, filter, backdrop-filter;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 150ms;
 }

@@ -25,7 +25,6 @@ export default function LoginPage() {
     try {
       await signInUser(email, password)
 
-      // Set session cookie for middleware
       document.cookie = "__session=authenticated; path=/; max-age=86400"
 
       router.push("/dashboard")
