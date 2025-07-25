@@ -63,6 +63,12 @@ class SocketClient {
       reconnectionDelay: 1000,
     })
 
+    const connectionUrl = process.env.NODE_ENV === "production" 
+      ? window.location.origin 
+      : "http://localhost:3001"
+    console.log("🔌 Socket connecting to:", connectionUrl)
+    console.log("🔌 NODE_ENV:", process.env.NODE_ENV)
+
     this.socket.on("connect", () => {
       console.log("🔌 Socket connected:", this.socket?.id)
       this.reconnectAttempts = 0

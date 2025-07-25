@@ -5,7 +5,7 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
-    "start": "node server/custom-server.js",
+    "start": "node server/custom-server-fixed.js",
     "start:next": "next start",
     "socket": "tsx server/socket-server.ts",
     "dev:all": "concurrently \"npm run dev\" \"npm run socket\"",
