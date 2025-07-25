@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, type FormEvent } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Bot, User, Send, Zap, Brain, Gamepad2, MessageSquare, Sparkles, ChevronDown, ChevronUp } from "lucide-react" // Import Chevron icons
+import { Bot, User, Send, Zap, Brain, Gamepad2, MessageSquare, Sparkles, ChevronDown, ChevronUp, ArrowLeft } from "lucide-react" // Import ArrowLeft icon
 import { useAuth } from "@/lib/auth-context"
 import { useRouter } from "next/navigation"
 
@@ -13,6 +13,7 @@ interface Message {
 
 export default function Chat() {
   const { user, userProfile } = useAuth()
+  const router = useRouter()
   const username = userProfile?.username || "Commander"
   const [userInput, setUserInput] = useState<string>("")
   const [messages, setMessages] = useState<Message[]>([
@@ -98,6 +99,18 @@ export default function Chat() {
         animate={{ opacity: 1, y: 0 }}
         className="bg-retro-dark p-6 border-b-2 border-cyan-400 shadow-lg shadow-cyan-400/20"
       >
+        <div className="flex items-center justify-between mb-4">
+          <motion.button
+            whileHover={{ scale: 1.05, x: -2 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => router.push("/dashboard")}
+            className="flex items-center gap-2 font-pixel text-sm text-slate-400 hover:text-cyan-400 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            DASHBOARD
+          </motion.button>
+        </div>
+        
         <div className="flex items-center justify-center gap-4">
           <motion.div
             animate={{ rotate: 360 }}
@@ -109,6 +122,9 @@ export default function Chat() {
             EDU
           </h1>
           <MessageSquare className="w-8 h-8 text-pink-400" />
+        </div>
+        <div className="text-center mt-2">
+          <p className="font-terminal text-sm text-cyan-300 opacity-80">Your AI Study Companion</p>
         </div>
         <div className="w-full h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent mt-4"></div>
       </motion.header>
