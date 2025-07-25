@@ -231,13 +231,14 @@ export default function DuelPage({ params }: DuelPageProps) {
     socket.on("game-start", (data) => {
       console.log("🚀 Socket game started:", data)
       console.log("📝 Quiz data received:", data.quizData?.length, "questions")
-      setDuel({
+      
+      const newDuelState = {
         id: params.id,
         player1Id: userProfile!.id,
         player2Id: "opponent",
         subject: data.subject || "math", // Use subject from server data
         quizData: data.quizData,
-        currentQuestionIndex: data.questionIndex,
+        currentQuestionIndex: data.questionIndex || 0,
         player1Answers: [],
         player2Answers: [],
         player1Time: [],
@@ -248,9 +249,13 @@ export default function DuelPage({ params }: DuelPageProps) {
         isTraining: false,
         maxQuestions: 5,
         createdAt: new Date(),
-      } as any)
+      } as any
+      
+      console.log("🎮 Setting duel state:", newDuelState)
+      setDuel(newDuelState)
       setStartTime(Date.now())
       setLoading(false)
+      console.log("✅ Game state updated - loading set to false")
     })
 
     socket.on("opponent-answered", () => {
