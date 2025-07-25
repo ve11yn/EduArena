@@ -472,7 +472,9 @@ app.prepare().then(() => {
     if (err) throw err
     console.log(`🚀 Next.js app ready on http://${hostname}:${port}`)
     console.log(`🎮 Socket.io server running on the same port`)
-    console.log(`🔧 Server Version: custom-server-fixed.js v2.1 (Latest - with fallback sessions)`)
+    console.log(`🔧 Server Version: custom-server-fixed.js v3.0 (LATEST - Jan 25, 2025)`)
     console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`)
+    console.log(`⚡ Enhanced debugging enabled - join-game flow tracking`)
+    console.log(`🆔 Unique deployment ID: ${Date.now()}`)
   })
 })
