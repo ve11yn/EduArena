@@ -65,8 +65,8 @@ class SocketGameServer {
         this.handleLeaveQueue(socket)
       })
 
-      socket.on("join-game", (duelId) => {
-        this.handleJoinGame(socket, duelId)
+      socket.on("join-game", (data) => {
+        this.handleJoinGame(socket, data)
       })
 
       socket.on("player-answer", async (data) => {
@@ -251,10 +251,7 @@ class SocketGameServer {
         })
       }
 
-      // Start the game after a short delay
-      setTimeout(() => {
-        this.startGame(duelId)
-      }, 2000)
+      console.log("🎮 Game session created, waiting for both players to join...")
     } catch (error) {
       console.error("❌ Error creating game session:", error)
       console.error("❌ Error details:", {
@@ -277,44 +274,82 @@ class SocketGameServer {
 
   private startGame(duelId: string) {
     const session = this.activeSessions.get(duelId)
-    if (!session) return
+    if (!session) {
+      console.log("❌ Cannot start game: session not found")
+      return
+    }
+
+    // Check if both players are connected
+    const player1Socket = this.io.sockets.sockets.get(session.player1.socketId)
+    const player2Socket = this.io.sockets.sockets.get(session.player2.socketId)
+
+    if (!player1Socket || !player2Socket) {
+      console.log("❌ Cannot start game: not all players connected", {
+        player1Connected: !!player1Socket,
+        player2Connected: !!player2Socket
+      })
+      return
+    }
 
     console.log("🚀 Starting game:", duelId)
+    console.log("📝 Quiz questions available:", session.quizData.length)
 
     const currentQuestion = session.quizData[0]
     session.questionStartTime = Date.now()
-
-    // Send game start to both players
-    const player1Socket = this.io.sockets.sockets.get(session.player1.socketId)
-    const player2Socket = this.io.sockets.sockets.get(session.player2.socketId)
 
     const gameStartData = {
       quizData: session.quizData,
       currentQuestion,
       questionIndex: 0,
+      subject: session.subject,
     }
 
-    player1Socket?.emit("game-start", gameStartData)
-    player2Socket?.emit("game-start", gameStartData)
+    console.log("📤 Sending game-start to both players")
+    player1Socket.emit("game-start", gameStartData)
+    player2Socket.emit("game-start", gameStartData)
   }
 
-  private handleJoinGame(socket: any, duelId: string) {
-    const session = this.activeSessions.get(duelId)
+  private handleJoinGame(socket: any, data: { duelId: string; userId: string }) {
+    const session = this.activeSessions.get(data.duelId)
     if (!session) {
+      console.log("❌ Game session not found for duel:", data.duelId)
       socket.emit("error", "Game session not found")
       return
     }
 
+    console.log("🎮 Player attempting to join game:", { 
+      duelId: data.duelId, 
+      userId: data.userId,
+      sessionExists: !!session 
+    })
+
     // Update socket mapping in case of reconnection
-    if (session.player1.userId === socket.handshake.query.userId) {
+    if (session.player1.userId === data.userId) {
       session.player1.socketId = socket.id
-      this.playerSessions.set(socket.id, duelId)
-    } else if (session.player2.userId === socket.handshake.query.userId) {
+      this.playerSessions.set(socket.id, data.duelId)
+      console.log("🎮 Player1 joined game:", data.duelId)
+    } else if (session.player2.userId === data.userId) {
       session.player2.socketId = socket.id
-      this.playerSessions.set(socket.id, duelId)
+      this.playerSessions.set(socket.id, data.duelId)
+      console.log("🎮 Player2 joined game:", data.duelId)
+    } else {
+      console.log("❌ User not part of this game session:", { 
+        userId: data.userId, 
+        player1: session.player1.userId, 
+        player2: session.player2.userId 
+      })
+      socket.emit("error", "You are not part of this game session")
+      return
     }
 
-    console.log("🎮 Player joined game:", duelId)
+    // Check if game should start (both players joined)
+    const bothPlayersJoined = this.playerSessions.has(session.player1.socketId) && 
+                              this.playerSessions.has(session.player2.socketId)
+    
+    if (bothPlayersJoined) {
+      console.log("👥 Both players joined, sending game start")
+      this.startGame(data.duelId)
+    }
   }
 
   private async handlePlayerAnswer(socket: any, data: { answer: string; timeElapsed: number }) {

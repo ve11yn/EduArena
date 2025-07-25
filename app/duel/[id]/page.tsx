@@ -67,14 +67,56 @@ export default function DuelPage({ params }: DuelPageProps) {
       return
     }
 
-    // Check if this is a socket-based game by trying to connect
+    // Try to use socket-based game first
     const socket = socketClient.getSocket()
-    if (socket && socket.connected) {
+    
+    console.log("🎮 Duel page loaded, checking for socket connection...")
+    console.log("🔌 Socket state:", { 
+      exists: !!socket, 
+      connected: socket?.connected,
+      id: socket?.id 
+    })
+
+    // Set up socket listeners and attempt socket-based game
+    if (socket) {
       setIsSocketGame(true)
-      setSocketConnected(true)
+      
+      // Set up listeners first
       setupSocketListeners()
+      
+      if (socket.connected) {
+        console.log("✅ Socket already connected, joining game immediately")
+        setSocketConnected(true)
+        // Join game immediately if already connected
+        socketClient.emit("join-game", { duelId: params.id, userId: userProfile.id })
+      } else {
+        console.log("⏳ Socket not connected yet, waiting for connection...")
+        // Wait for connection
+        socket.on("connect", () => {
+          console.log("✅ Socket connected, joining game")
+          setSocketConnected(true)
+          socketClient.emit("join-game", { duelId: params.id, userId: userProfile.id })
+        })
+      }
+      
+      // Set a timeout to fallback to Firebase if socket doesn't work
+      const socketTimeout = setTimeout(() => {
+        console.log("⚠️ Socket timeout, falling back to Firebase...")
+        if (!socketConnected) {
+          setIsSocketGame(false)
+          fallbackToFirebase()
+        }
+      }, 5000)
+      
+      return () => {
+        clearTimeout(socketTimeout)
+      }
     } else {
-      // Fallback to Firebase-based game
+      console.log("❌ No socket available, using Firebase...")
+      fallbackToFirebase()
+    }
+
+    function fallbackToFirebase() {
       fetchDuel()
 
       // Subscribe to real-time updates for Firebase games
@@ -118,14 +160,14 @@ export default function DuelPage({ params }: DuelPageProps) {
 
       return () => unsubscribe()
     }
-  }, [user, userProfile, router, params.id])
+  }, [user, userProfile, router, params.id, socketConnected])
 
   // Add socket listeners function
   const setupSocketListeners = () => {
     const socket = socketClient.getSocket()
     if (!socket) return
 
-    socketClient.emit("join-game", params.id)
+    console.log("🎧 Setting up socket listeners for duel page")
 
     socket.on("game-start", (data) => {
       console.log("🚀 Socket game started:", data)
@@ -133,7 +175,7 @@ export default function DuelPage({ params }: DuelPageProps) {
         id: params.id,
         player1Id: userProfile!.id,
         player2Id: "opponent",
-        subject: "math" as any, // This should come from the socket data
+        subject: data.subject || "math", // Use subject from server data
         quizData: data.quizData,
         currentQuestionIndex: data.questionIndex,
         player1Answers: [],
