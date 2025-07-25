@@ -34,7 +34,7 @@ export interface SocketEvents {
 class SocketClient {
   private socket: Socket | null = null
   private reconnectAttempts = 0
-  private maxReconnectAttempts = 5
+  private maxReconnectAttempts = 10 // Increased for Railway
 
   connect(): Socket {
     if (this.socket?.connected) {
@@ -49,7 +49,7 @@ class SocketClient {
 
     this.socket = io(
       process.env.NODE_ENV === "production" 
-        ? window.location.origin // Connect to same origin in production
+        ? window.location.origin // Connect to same origin in production (Railway)
         : "http://localhost:3001", 
       {
       transports: ["websocket", "polling"],
@@ -59,8 +59,16 @@ class SocketClient {
       upgrade: true,
       rememberUpgrade: true,
       reconnection: true,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: 10, // More attempts for Railway
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      randomizationFactor: 0.5,
+      // Railway-specific optimizations
+      ...(process.env.NODE_ENV === "production" && {
+        transports: ["polling", "websocket"], // Start with polling for Railway
+        pingTimeout: 60000,
+        pingInterval: 25000,
+      })
     })
 
     const connectionUrl = process.env.NODE_ENV === "production" 
@@ -68,6 +76,8 @@ class SocketClient {
       : "http://localhost:3001"
     console.log("🔌 Socket connecting to:", connectionUrl)
     console.log("🔌 NODE_ENV:", process.env.NODE_ENV)
+    console.log("🔌 Current URL:", window.location.origin)
+    console.log("🔌 Is production:", process.env.NODE_ENV === "production")
 
     this.socket.on("connect", () => {
       console.log("🔌 Socket connected:", this.socket?.id)

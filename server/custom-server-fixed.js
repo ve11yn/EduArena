@@ -11,6 +11,12 @@ const dev = process.env.NODE_ENV !== 'production'
 const hostname = '0.0.0.0' // Allow external connections for Railway
 const port = process.env.PORT || 3000
 
+console.log('🚀 Starting server...')
+console.log('📍 Environment:', process.env.NODE_ENV)
+console.log('🌐 Hostname:', hostname)
+console.log('🔌 Port:', port)
+console.log('🏗️ Development mode:', dev)
+
 const app = next({ dev, hostname, port })
 const handle = app.getRequestHandler()
 
@@ -28,14 +34,16 @@ app.prepare().then(() => {
 
   // Import and initialize the Socket server
   const { Server } = require('socket.io')
+  console.log('🔌 Initializing Socket.io server...')
   const io = new Server(httpServer, {
     cors: {
       origin: process.env.NODE_ENV === 'production' 
-        ? true // Allow all origins in production
+        ? true // Allow all origins in production (Railway)
         : ["http://localhost:3000", "http://localhost:3001"],
       methods: ["GET", "POST"]
     }
   })
+  console.log('✅ Socket.io server initialized')
 
   // Complete socket server with quiz functionality
   const matchmakingQueue = new Map() // subject -> players
@@ -472,9 +480,7 @@ app.prepare().then(() => {
     if (err) throw err
     console.log(`🚀 Next.js app ready on http://${hostname}:${port}`)
     console.log(`🎮 Socket.io server running on the same port`)
-    console.log(`🔧 Server Version: custom-server-fixed.js v3.0 (LATEST - Jan 25, 2025)`)
+    console.log(`🔧 Server Version: custom-server-fixed.js v2.1 (Latest - with fallback sessions)`)
     console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`)
-    console.log(`⚡ Enhanced debugging enabled - join-game flow tracking`)
-    console.log(`🆔 Unique deployment ID: ${Date.now()}`)
   })
 })

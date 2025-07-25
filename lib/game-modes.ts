@@ -9,7 +9,7 @@ export interface TrainingLevelData {
 export interface GameConfig {
   mode: GameMode
   subject: "math" | "bahasa" | "english"
-  difficulty: "beginner" | "intermediate" | "advanced"
+  difficulty?: "beginner" | "intermediate" | "advanced" // Optional for PvP mode
   trainingLevel?: TrainingLevelData
 }
 

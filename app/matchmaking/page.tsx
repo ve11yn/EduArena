@@ -5,6 +5,7 @@ import { motion } from "framer-motion"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { socketClient } from "@/lib/socket-client"
+import { startGame } from "@/lib/game-service"
 import { Users, Trophy, ArrowLeft } from "lucide-react"
 
 export default function MatchmakingPage() {
@@ -24,6 +25,47 @@ export default function MatchmakingPage() {
       router.push("/login")
       return
     }
+
+    // Start the matchmaking process
+    const initializeMatchmaking = async () => {
+      try {
+        setError("")
+        console.log("🎯 Starting PvP matchmaking...")
+        console.log("📍 Current URL:", window.location.origin)
+        console.log("📍 NODE_ENV:", process.env.NODE_ENV)
+        console.log("👤 User:", userProfile.username)
+        console.log("📚 Subject:", subject)
+        
+        // Get user token for API calls
+        const token = await user.getIdToken()
+        console.log("🔑 Got user token")
+        
+        // Start the game (this will join the queue)
+        const result = await startGame(
+          {
+            mode: "pvp",
+            subject: subject as any,
+          },
+          userProfile,
+          token
+        )
+
+        console.log("🎮 Game start result:", result)
+
+        if (!result.success) {
+          setError(result.error || "Failed to start matchmaking")
+          return
+        }
+
+        console.log("✅ Successfully joined matchmaking queue")
+      } catch (error) {
+        console.error("❌ Matchmaking initialization error:", error)
+        setError(error instanceof Error ? error.message : "Failed to initialize matchmaking")
+      }
+    }
+
+    // Initialize matchmaking
+    initializeMatchmaking()
 
     // Connect to socket
     const socket = socketClient.connect()
@@ -71,7 +113,7 @@ export default function MatchmakingPage() {
       // Leave queue when component unmounts
       socketClient.safeLeaveQueue()
     }
-  }, [user, userProfile, router])
+  }, [user, userProfile, router, subject])
 
   const handleCancel = () => {
     socketClient.safeLeaveQueue()
