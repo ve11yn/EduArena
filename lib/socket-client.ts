@@ -47,7 +47,11 @@ class SocketClient {
       this.socket = null
     }
 
-    this.socket = io(process.env.NODE_ENV === "production" ? "" : "http://localhost:3001", {
+    this.socket = io(
+      process.env.NODE_ENV === "production" 
+        ? window.location.origin // Connect to same origin in production
+        : "http://localhost:3001", 
+      {
       transports: ["websocket", "polling"],
       timeout: 20000,
       forceNew: true,

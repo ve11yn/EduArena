@@ -180,10 +180,16 @@ class SocketGameServer {
       console.log("🎮 Creating game session...")
 
       // Generate quiz questions using Gemini
+      console.log("📝 Generating quiz questions for subject:", subject)
       const quizData = await generateGeminiQuizQuestions(subject, "intermediate", 5)
       console.log("📝 Generated quiz questions:", quizData.length)
+      
+      if (!quizData || quizData.length === 0) {
+        throw new Error("No quiz questions were generated")
+      }
 
       // Create duel in Firebase
+      console.log("🔥 Creating duel in Firebase...")
       const duelId = await createDuel({
         player1Id: player1.userId,
         player2Id: player2.userId,
@@ -251,13 +257,21 @@ class SocketGameServer {
       }, 2000)
     } catch (error) {
       console.error("❌ Error creating game session:", error)
+      console.error("❌ Error details:", {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : 'No stack trace',
+        player1: player1.username,
+        player2: player2.username,
+        subject
+      })
 
       // Notify players of error
       const player1Socket = this.io.sockets.sockets.get(player1.socketId)
       const player2Socket = this.io.sockets.sockets.get(player2.socketId)
 
-      player1Socket?.emit("error", "Failed to create game session")
-      player2Socket?.emit("error", "Failed to create game session")
+      const errorMessage = error instanceof Error ? error.message : "Failed to create game session"
+      player1Socket?.emit("error", `Failed to create game session: ${errorMessage}`)
+      player2Socket?.emit("error", `Failed to create game session: ${errorMessage}`)
     }
   }
 
