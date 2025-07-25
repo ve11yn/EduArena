@@ -6,12 +6,12 @@ import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { signOutUser } from "@/lib/firebase/auth"
 import { useLeaderboard, getEloColor, getRankTitle } from "@/hooks/use-leaderboard"
-import { getUserEloForSubject } from "@/lib/firebase/firestore"
+import { getUserEloForSubject, subscribeToUserProfile, type User as FirebaseUser } from "@/lib/firebase/firestore"
 import { Trophy, TrendingUp, Users, LogOut, Gamepad2, Crown, Medal, Award, User, Heart } from "lucide-react"
 import Link from "next/link"
 
 export default function DashboardPage() {
-  const { user, userProfile, loading: authLoading } = useAuth()
+  const { user, userProfile, loading: authLoading, refreshUserProfile } = useAuth()
   const { topUsers, stats, loading: leaderboardLoading, getUserRankPosition } = useLeaderboard({
     limit: 10,
     realtime: true,
@@ -20,6 +20,7 @@ export default function DashboardPage() {
   const [userRankPosition, setUserRankPosition] = useState<number>(0)
   const [initialLeaderboardLoaded, setInitialLeaderboardLoaded] = useState(false)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
+  const [realtimeUserProfile, setRealtimeUserProfile] = useState<FirebaseUser | null>(null)
   const router = useRouter()
 
   // Helper function to get display ELO (now returns average ELO)
@@ -37,6 +38,11 @@ export default function DashboardPage() {
       return
     }
 
+    // Refresh user profile to get latest data (especially lives)
+    if (refreshUserProfile) {
+      refreshUserProfile()
+    }
+
     const fetchUserRank = async () => {
       if (userProfile) {
         const rank = await getUserRankPosition(userProfile.id)
@@ -45,7 +51,30 @@ export default function DashboardPage() {
     }
 
     fetchUserRank()
-  }, [user, userProfile, authLoading, router, getUserRankPosition])
+
+    // Set up real-time listener for user profile updates
+    let unsubscribeProfile: (() => void) | null = null
+    if (user?.uid) {
+      console.log('📡 Dashboard: Setting up real-time user profile listener...')
+      unsubscribeProfile = subscribeToUserProfile(user.uid, (profile) => {
+        if (profile) {
+          console.log('📨 Dashboard: Real-time profile update received, lives:', profile.lives)
+          setRealtimeUserProfile(profile)
+          // Also refresh the auth context profile
+          if (refreshUserProfile) {
+            refreshUserProfile()
+          }
+        }
+      })
+    }
+
+    return () => {
+      if (unsubscribeProfile) {
+        console.log('🔌 Dashboard: Cleaning up real-time user profile listener')
+        unsubscribeProfile()
+      }
+    }
+  }, [user, userProfile, authLoading, router, getUserRankPosition, refreshUserProfile])
 
   // Mark initial leaderboard as loaded after first load
   useEffect(() => {
@@ -82,6 +111,50 @@ export default function DashboardPage() {
   const getUserRank = () => {
     return userRankPosition
   }
+
+  // Refresh user profile when the page becomes visible (user returns from other tabs/apps)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && refreshUserProfile) {
+        console.log('👁️ Dashboard: Page became visible, refreshing user profile...')
+        refreshUserProfile()
+      }
+    }
+
+    const handleFocus = () => {
+      if (refreshUserProfile) {
+        console.log('🎯 Dashboard: Window focused, refreshing user profile...')
+        refreshUserProfile()
+      }
+    }
+
+    // Also add periodic polling to ensure lives are updated
+    const pollInterval = setInterval(() => {
+      if (refreshUserProfile && !document.hidden) {
+        console.log('🔄 Dashboard: Periodic profile refresh...')
+        refreshUserProfile()
+      }
+    }, 30000) // Refresh every 30 seconds
+
+    // Listen for route changes/navigation back to dashboard
+    const handlePopState = () => {
+      if (refreshUserProfile) {
+        console.log('🔙 Dashboard: Route change detected, refreshing user profile...')
+        setTimeout(() => refreshUserProfile(), 100) // Small delay to ensure page is ready
+      }
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', handleFocus)
+      window.removeEventListener('popstate', handlePopState)
+      clearInterval(pollInterval)
+    }
+  }, [refreshUserProfile])
 
   if (authLoading || (!initialLeaderboardLoaded && leaderboardLoading)) {
     return (
@@ -123,11 +196,11 @@ export default function DashboardPage() {
                   {[...Array(3)].map((_, i) => (
                     <div 
                       key={i} 
-                      className={`w-2 h-2 rounded-full ${i < (userProfile?.lives || 0) ? 'bg-red-400' : 'bg-slate-600'}`}
+                      className={`w-2 h-2 rounded-full ${i < ((realtimeUserProfile?.lives ?? userProfile?.lives) || 0) ? 'bg-red-400' : 'bg-slate-600'}`}
                     />
                   ))}
                 </div>
-                <span className="font-pixel text-xs text-cyan-400">{userProfile?.lives || 0}/3</span>
+                <span className="font-pixel text-xs text-cyan-400">{(realtimeUserProfile?.lives ?? userProfile?.lives) || 0}/3</span>
               </div>
             </div>
             <div className="mt-4">

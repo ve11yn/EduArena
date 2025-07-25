@@ -11,14 +11,15 @@ export const generateQuizQuestions = async (
   subject: string,
   difficulty?: string,
   count = 5,
+  specificTopic?: string // Add specific topic parameter
 ): Promise<QuizQuestion[]> => {
   // For PvP, use intermediate difficulty if no difficulty specified
   const actualDifficulty = difficulty || "intermediate"
 
   // Try Gemini AI first, fallback to static if it fails
   try {
-    console.log(`🤖 Attempting Gemini AI generation: ${count} questions for ${subject} (${actualDifficulty})`);
-    const aiQuestions = await generateGeminiQuizQuestions(subject, actualDifficulty, count);
+    console.log(`🤖 Attempting Gemini AI generation: ${count} questions for ${subject} (${actualDifficulty})${specificTopic ? ` - Topic: ${specificTopic}` : ''}`);
+    const aiQuestions = await generateGeminiQuizQuestions(subject, actualDifficulty, count, specificTopic);
     console.log(`✅ GEMINI SUCCESS: Generated ${aiQuestions.length} questions`);
     return aiQuestions;
   } catch (error) {
@@ -30,16 +31,94 @@ export const generateQuizQuestions = async (
     }
     
     // Fallback to static questions
-    console.log(`📚 Falling back to static questions: ${count} for ${subject} (${actualDifficulty})`);
-    return generateStaticQuestions(subject, actualDifficulty, count);
+    console.log(`📚 Falling back to static questions: ${count} for ${subject} (${actualDifficulty})${specificTopic ? ` - Topic: ${specificTopic}` : ''}`);
+    return generateStaticQuestions(subject, actualDifficulty, count, specificTopic);
   }
 }
 
 const generateStaticQuestions = (
   subject: string,
   difficulty: string,
-  count: number
+  count: number,
+  specificTopic?: string // Add specific topic parameter
 ): QuizQuestion[] => {
+  // If specific topic is provided, try to filter questions by topic
+  if (specificTopic) {
+    console.log(`📚 Static fallback requested for specific topic: ${specificTopic}`);
+    
+    // For Basic Addition, provide only addition questions
+    if (specificTopic === "Basic Addition") {
+      return [
+        {
+          question: "What is 5 + 3?",
+          options: ["6", "7", "8", "9"],
+          correct_answer: 2,
+          explanation: "5 + 3 = 8",
+        },
+        {
+          question: "What is 12 + 7?",
+          options: ["18", "19", "20", "21"],
+          correct_answer: 1,
+          explanation: "12 + 7 = 19",
+        },
+        {
+          question: "What is 25 + 14?",
+          options: ["37", "38", "39", "40"],
+          correct_answer: 2,
+          explanation: "25 + 14 = 39",
+        },
+        {
+          question: "What is 6 + 9?",
+          options: ["14", "15", "16", "17"],
+          correct_answer: 1,
+          explanation: "6 + 9 = 15",
+        },
+        {
+          question: "What is 18 + 23?",
+          options: ["40", "41", "42", "43"],
+          correct_answer: 1,
+          explanation: "18 + 23 = 41",
+        },
+      ].slice(0, count);
+    }
+    
+    // For Basic Subtraction, provide only subtraction questions
+    if (specificTopic === "Basic Subtraction") {
+      return [
+        {
+          question: "What is 10 - 4?",
+          options: ["5", "6", "7", "8"],
+          correct_answer: 1,
+          explanation: "10 - 4 = 6",
+        },
+        {
+          question: "What is 15 - 8?",
+          options: ["6", "7", "8", "9"],
+          correct_answer: 1,
+          explanation: "15 - 8 = 7",
+        },
+        {
+          question: "What is 20 - 12?",
+          options: ["7", "8", "9", "10"],
+          correct_answer: 1,
+          explanation: "20 - 12 = 8",
+        },
+        {
+          question: "What is 25 - 9?",
+          options: ["15", "16", "17", "18"],
+          correct_answer: 1,
+          explanation: "25 - 9 = 16",
+        },
+        {
+          question: "What is 30 - 13?",
+          options: ["16", "17", "18", "19"],
+          correct_answer: 1,
+          explanation: "30 - 13 = 17",
+        },
+      ].slice(0, count);
+    }
+  }
+
   // Mock quiz questions for different subjects and difficulties
   const quizBank = {
     math: {

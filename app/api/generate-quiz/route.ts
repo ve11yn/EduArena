@@ -6,8 +6,8 @@ export async function POST(request: NextRequest) {
   console.log('🎯 API Route: generate-quiz called')
   
   try {
-    const { subject, difficulty, count } = await request.json()
-    console.log('📋 Request params:', { subject, difficulty, count })
+    const { subject, difficulty, count, specificTopic } = await request.json()
+    console.log('📋 Request params:', { subject, difficulty, count, specificTopic })
 
     // Validate input
     if (!subject) {
@@ -39,9 +39,9 @@ export async function POST(request: NextRequest) {
     const questionCount = count || 5
     const quizDifficulty = difficulty || "intermediate"
     
-    console.log(`🚀 SERVER: Starting quiz generation for ${subject} (${quizDifficulty}) - ${questionCount} questions`)
+    console.log(`🚀 SERVER: Starting quiz generation for ${subject} (${quizDifficulty}) - ${questionCount} questions${specificTopic ? ` - Topic: ${specificTopic}` : ''}`)
     
-    const questions = await generateQuizQuestions(subject, quizDifficulty, questionCount)
+    const questions = await generateQuizQuestions(subject, quizDifficulty, questionCount, specificTopic)
     
     console.log(`🎯 SERVER: Generated ${questions.length} questions total`)
     console.log(`📋 SERVER: First question preview:`, questions[0]?.question?.substring(0, 50) + '...')

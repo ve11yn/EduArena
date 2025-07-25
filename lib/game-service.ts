@@ -17,9 +17,10 @@ async function generateQuizQuestionsViaAPI(
   subject: string, 
   difficulty: string, 
   count: number,
-  userToken: string
+  userToken: string,
+  specificTopic?: string // Add optional specific topic parameter
 ) {
-  console.log('🤖 Calling AI question generation API:', { subject, difficulty, count })
+  console.log('🤖 Calling AI question generation API:', { subject, difficulty, count, specificTopic })
   
   const response = await fetch('/api/generate-quiz', {
     method: 'POST',
@@ -30,7 +31,8 @@ async function generateQuizQuestionsViaAPI(
     body: JSON.stringify({
       subject,
       difficulty,
-      count
+      count,
+      specificTopic // Pass the specific topic to the API
     })
   });
 
@@ -69,7 +71,10 @@ export const startGame = async (config: GameConfig, currentUser: User, userToken
       }
 
       const botOpponent = createBotOpponent(difficulty)
-      const quizQuestions = await generateQuizQuestionsViaAPI(subject, difficulty, maxQuestions, userToken)
+      
+      // For training mode, use the specific level name if available
+      const specificTopic = config.trainingLevel?.levelName
+      const quizQuestions = await generateQuizQuestionsViaAPI(subject, difficulty, maxQuestions, userToken, specificTopic)
 
       const duelId = await createDuel({
         player1Id: currentUser.id,
@@ -87,6 +92,7 @@ export const startGame = async (config: GameConfig, currentUser: User, userToken
         status: "in_progress",
         isTraining: true,
         maxQuestions,
+        trainingLevel: config.trainingLevel, // Pass training level data
         startedAt: new Date(),
       })
 

@@ -1,4 +1,4 @@
-import { getDuelById, updateDuel, getUserById, updateUsersElo, getUserEloForSubject, updateUserLives } from "@/lib/firebase/firestore";
+import { getDuelById, updateDuel, getUserById, updateUsersElo, getUserEloForSubject, updateUserLives, updateTrainingProgress } from "@/lib/firebase/firestore";
 import { calculateEloRating } from "@/lib/elo";
 import { generateBotAnswer } from "@/lib/game-modes";
 import type { Duel } from "@/lib/firebase/firestore";
@@ -24,6 +24,16 @@ export interface SubmitAnswerResult {
   waitingForBot?: boolean;
   result?: DuelResult;
   error?: string;
+  // Immediate feedback for current question
+  questionFeedback?: {
+    correct: boolean;
+    correctAnswer: number;
+    userAnswer: number;
+    explanation?: string;
+    questionIndex: number;
+    questionText: string;
+    options: string[];
+  };
 }
 
 export interface DuelResult {
@@ -150,14 +160,25 @@ async function processQuestionResult(duel: Duel): Promise<SubmitAnswerResult> {
   console.log(`   Correct option: "${currentQuestion.options[correctAnswer]}"`);
 
   // Use raw answers and compute correctness
-  const player1Answer = Number.parseInt(duel.player1Answers![duel.currentQuestionIndex] || "0");
-  const player2Answer = Number.parseInt(duel.player2Answers![duel.currentQuestionIndex] || "0");
+  const player1AnswerRaw = duel.player1Answers![duel.currentQuestionIndex];
+  const player2AnswerRaw = duel.player2Answers![duel.currentQuestionIndex];
+  
+  // Parse answers - treat invalid/timeout answers as -1 (always wrong)
+  const player1Answer = player1AnswerRaw ? Number.parseInt(player1AnswerRaw) : -1;
+  const player2Answer = player2AnswerRaw ? Number.parseInt(player2AnswerRaw) : -1;
+  
+  // If the parsed answer is NaN or negative, treat as wrong (-1)
+  const player1FinalAnswer = (isNaN(player1Answer) || player1Answer < 0) ? -1 : player1Answer;
+  const player2FinalAnswer = (isNaN(player2Answer) || player2Answer < 0) ? -1 : player2Answer;
 
-  console.log(`   Player 1 answered: ${player1Answer} ("${currentQuestion.options[player1Answer] || 'Invalid'}")`);
-  console.log(`   Player 2 answered: ${player2Answer} ("${currentQuestion.options[player2Answer] || 'Invalid'}")`);
+  console.log(`   Player 1 answered: ${player1FinalAnswer} ("${player1FinalAnswer >= 0 ? currentQuestion.options[player1FinalAnswer] || 'Invalid' : 'TIMEOUT/NO ANSWER'}")`);
+  console.log(`   Player 2 answered: ${player2FinalAnswer} ("${player2FinalAnswer >= 0 ? currentQuestion.options[player2FinalAnswer] || 'Invalid' : 'TIMEOUT/NO ANSWER'}")`);
 
-  const player1Correct = player1Answer === correctAnswer;
-  const player2Correct = player2Answer === correctAnswer;
+  const player1Correct = player1FinalAnswer === correctAnswer;
+  const player2Correct = player2FinalAnswer === correctAnswer;
+
+  console.log(`   Player 1 correct: ${player1Correct} (answered ${player1FinalAnswer}, correct is ${correctAnswer})`);
+  console.log(`   Player 2 correct: ${player2Correct} (answered ${player2FinalAnswer}, correct is ${correctAnswer})`);
 
   console.log(`   Player 1 correct: ${player1Correct}`);
   console.log(`   Player 2 correct: ${player2Correct}`);
@@ -210,6 +231,15 @@ async function processQuestionResult(duel: Duel): Promise<SubmitAnswerResult> {
       success: true,
       completed: false,
       nextQuestion: true,
+      questionFeedback: {
+        correct: player1Correct,
+        correctAnswer: correctAnswer,
+        userAnswer: player1FinalAnswer,
+        explanation: currentQuestion.explanation,
+        questionIndex: duel.currentQuestionIndex,
+        questionText: currentQuestion.question,
+        options: currentQuestion.options,
+      },
     };
   } else {
     console.log(`   🏁 Game ending...`);
@@ -224,6 +254,34 @@ async function processQuestionResult(duel: Duel): Promise<SubmitAnswerResult> {
       if (newPlayer1Score >= newPlayer2Score) {
         winnerId = duel.player1Id;
         console.log(`   🎉 Player 1 wins training mode! Score: ${newPlayer1Score} vs Bot ${newPlayer2Score}`);
+        
+        // Update training progress for the completed level
+        if (duel.trainingLevel) {
+          try {
+            console.log(`   📈 Updating training progress for ${duel.subject} level ${duel.trainingLevel.levelId}...`);
+            const progressResult = await updateTrainingProgress(
+              duel.player1Id,
+              duel.subject,
+              duel.trainingLevel.levelId,
+              duel.trainingLevel.totalQuestions, // Complete the entire level
+              duel.trainingLevel.totalQuestions
+            );
+            
+            if (progressResult.success) {
+              console.log(`   ✅ Training progress updated successfully!`);
+              if (progressResult.levelCompleted) {
+                console.log(`   🏆 Level ${duel.trainingLevel.levelId} completed!`);
+              }
+              if (progressResult.nextLevelUnlocked) {
+                console.log(`   🔓 Next level unlocked!`);
+              }
+            } else {
+              console.error(`   ❌ Failed to update training progress:`, progressResult.error);
+            }
+          } catch (error) {
+            console.error("   ❌ Error updating training progress:", error);
+          }
+        }
       } else {
         winnerId = duel.player2Id; // Bot wins
         console.log(`   🤖 Bot wins training mode! Score: Bot ${newPlayer2Score} vs Player ${newPlayer1Score}`);
@@ -271,6 +329,15 @@ async function processQuestionResult(duel: Duel): Promise<SubmitAnswerResult> {
       success: true,
       completed: true,
       result,
+      questionFeedback: {
+        correct: player1Correct,
+        correctAnswer: correctAnswer,
+        userAnswer: player1FinalAnswer,
+        explanation: currentQuestion.explanation,
+        questionIndex: duel.currentQuestionIndex,
+        questionText: currentQuestion.question,
+        options: currentQuestion.options,
+      },
     };
   }
 }
@@ -287,8 +354,19 @@ async function calculateFinalResult(
   for (let i = 0; i <= duel.currentQuestionIndex; i++) {
     if (duel.quizData && duel.quizData[i]) {
       const correctAnswer = duel.quizData[i].correct_answer;
-      player1Answers.push(Number.parseInt(duel.player1Answers![i] || "0") === correctAnswer);
-      player2Answers.push(Number.parseInt(duel.player2Answers![i] || "0") === correctAnswer);
+      
+      // Parse answers consistently - treat invalid/timeout as -1 (always wrong)
+      const player1AnswerRaw = duel.player1Answers![i];
+      const player2AnswerRaw = duel.player2Answers![i];
+      
+      const player1Answer = player1AnswerRaw ? Number.parseInt(player1AnswerRaw) : -1;
+      const player2Answer = player2AnswerRaw ? Number.parseInt(player2AnswerRaw) : -1;
+      
+      const player1FinalAnswer = (isNaN(player1Answer) || player1Answer < 0) ? -1 : player1Answer;
+      const player2FinalAnswer = (isNaN(player2Answer) || player2Answer < 0) ? -1 : player2Answer;
+      
+      player1Answers.push(player1FinalAnswer === correctAnswer);
+      player2Answers.push(player2FinalAnswer === correctAnswer);
     }
   }
 

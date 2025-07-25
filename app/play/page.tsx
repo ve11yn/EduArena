@@ -1,10 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { startGame } from "@/lib/game-service"
+import { restoreLifeByWatchingAd, getTrainingProgress, initializeTrainingProgress, type TrainingProgress } from "@/lib/firebase/firestore"
+import { AdWatchModal } from "@/components/ad-watch-modal"
 import { Gamepad2, Zap, Brain, Clock, Users, Bot, Trophy, Target, Star, Lock, CheckCircle, Play, Heart } from "lucide-react"
 import type { GameMode, TrainingLevelData } from "@/lib/game-modes"
 
@@ -61,8 +63,67 @@ export default function PlayPage() {
   const [showTrainingPath, setShowTrainingPath] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
-  const { user, userProfile } = useAuth()
+  const [showAdModal, setShowAdModal] = useState(false)
+  const [trainingProgress, setTrainingProgress] = useState<TrainingProgress | null>(null)
+  const [progressLoading, setProgressLoading] = useState(true)
+  const { user, userProfile, refreshUserProfile } = useAuth()
   const router = useRouter()
+
+  // Load training progress when user is available
+  useEffect(() => {
+    const loadTrainingProgress = async () => {
+      if (!user?.uid) {
+        setProgressLoading(false)
+        return
+      }
+
+      try {
+        setProgressLoading(true)
+        console.log('🔄 Loading training progress for user:', user.uid)
+        
+        let progress = await getTrainingProgress(user.uid)
+        
+        // Initialize progress if it doesn't exist
+        if (!progress) {
+          console.log('🎯 No training progress found, initializing...')
+          const initResult = await initializeTrainingProgress(user.uid)
+          if (initResult.success) {
+            progress = await getTrainingProgress(user.uid)
+          }
+        }
+        
+        setTrainingProgress(progress)
+        console.log('✅ Training progress loaded:', progress)
+      } catch (error) {
+        console.error('❌ Error loading training progress:', error)
+      } finally {
+        setProgressLoading(false)
+      }
+    }
+
+    loadTrainingProgress()
+  }, [user?.uid])
+
+  // Function to get level data with real progress
+  const getLevelWithProgress = (subject: string, levelId: number) => {
+    const baseLevel = trainingLevels[subject as keyof typeof trainingLevels]?.find(l => l.id === levelId)
+    if (!baseLevel) return null
+
+    const progressData = trainingProgress?.[subject]?.[levelId.toString()]
+    
+    return {
+      ...baseLevel,
+      progress: progressData?.progress || 0,
+      completed: progressData?.completed || false,
+      unlocked: progressData?.unlocked || (levelId === 1), // First level always unlocked
+    }
+  }
+
+  // Get all levels for a subject with real progress
+  const getLevelsWithProgress = (subject: string) => {
+    const baseLevels = trainingLevels[subject as keyof typeof trainingLevels] || []
+    return baseLevels.map(level => getLevelWithProgress(subject, level.id)).filter(Boolean)
+  }
 
   const handleStartGame = async () => {
     console.log('🎮 Starting game...', { gameMode, selectedSubject, selectedLevel })
@@ -72,7 +133,7 @@ export default function PlayPage() {
 
     // Check if user has lives for training mode
     if (gameMode === "training" && (userProfile.lives === undefined || userProfile.lives <= 0)) {
-      setError("You need at least 1 life to start training mode. Lives regenerate over time.")
+      setShowAdModal(true)
       return
     }
 
@@ -125,6 +186,65 @@ export default function PlayPage() {
     }
   }
 
+  const handleAdComplete = async () => {
+    if (!user) return
+    
+    try {
+      setLoading(true)
+      const result = await restoreLifeByWatchingAd(user.uid)
+      
+      if (result.success) {
+        // Refresh user profile to get updated lives
+        await refreshUserProfile()
+        setError("")
+      } else {
+        setError(result.error || "Failed to restore life")
+      }
+    } catch (error) {
+      console.error("Error completing ad:", error)
+      setError("Failed to restore life. Please try again.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Function to refresh training progress (call when returning from games)
+  const refreshTrainingProgress = async () => {
+    if (!user?.uid) return
+    
+    try {
+      console.log('🔄 Refreshing training progress...')
+      const progress = await getTrainingProgress(user.uid)
+      setTrainingProgress(progress)
+      console.log('✅ Training progress refreshed:', progress)
+    } catch (error) {
+      console.error('❌ Error refreshing training progress:', error)
+    }
+  }
+
+  // Listen for navigation back to this page to refresh progress
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        console.log('👁️ Play page became visible, refreshing progress...')
+        refreshTrainingProgress()
+      }
+    }
+
+    const handleFocus = () => {
+      console.log('🎯 Play page focused, refreshing progress...')
+      refreshTrainingProgress()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [user?.uid])
+
   const resetSelection = () => {
     setGameMode(null)
     setSelectedSubject("")
@@ -140,8 +260,9 @@ export default function PlayPage() {
   }
 
   const handleLevelSelect = (levelId: number) => {
-    const levels = trainingLevels[selectedSubject as keyof typeof trainingLevels]
-    const level = levels.find(l => l.id === levelId)
+    if (!selectedSubject) return
+    
+    const level = getLevelWithProgress(selectedSubject, levelId)
     if (level && level.unlocked) {
       setSelectedLevel(levelId)
     }
@@ -217,6 +338,14 @@ export default function PlayPage() {
             <div className="flex items-center gap-3 mb-6">
               <Target className="w-6 h-6 text-pink-400" />
               <h2 className="font-pixel text-xl text-pink-400 tracking-wider">SELECT GAME MODE</h2>
+              <div className="ml-auto">
+                <button
+                  onClick={() => router.push("/dashboard")}
+                  className="font-pixel text-xs text-slate-400 hover:text-cyan-400 transition-colors"
+                >
+                  ← DASHBOARD
+                </button>
+              </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <motion.button
@@ -376,31 +505,47 @@ export default function PlayPage() {
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-pixel text-sm text-purple-400">PROGRESS</span>
                     <span className="font-pixel text-sm text-cyan-400">
-                      {trainingLevels[selectedSubject as keyof typeof trainingLevels].filter(l => l.completed).length} / {trainingLevels[selectedSubject as keyof typeof trainingLevels].length}
+                      {progressLoading ? "..." : `${getLevelsWithProgress(selectedSubject).filter(l => l?.completed).length} / ${getLevelsWithProgress(selectedSubject).length}`}
                     </span>
                   </div>
                   <div className="w-full h-2 bg-slate-700 rounded-full">
-                    <div 
-                      className="h-full bg-gradient-to-r from-purple-400 to-cyan-400 rounded-full transition-all duration-500"
-                      style={{ 
-                        width: `${(trainingLevels[selectedSubject as keyof typeof trainingLevels].filter(l => l.completed).length / trainingLevels[selectedSubject as keyof typeof trainingLevels].length) * 100}%` 
-                      }}
-                    />
+                    {!progressLoading && (
+                      <div 
+                        className="h-full bg-gradient-to-r from-purple-400 to-cyan-400 rounded-full transition-all duration-500"
+                        style={{ 
+                          width: `${getLevelsWithProgress(selectedSubject).length > 0 ? (getLevelsWithProgress(selectedSubject).filter(l => l?.completed).length / getLevelsWithProgress(selectedSubject).length) * 100 : 0}%` 
+                        }}
+                      />
+                    )}
                   </div>
                 </div>
                 
                 {/* Global Lives Display */}
-                <div className="ml-6 flex items-center gap-2 px-4 py-2 bg-slate-700/50 rounded-lg border border-red-400/30">
-                  <span className="font-pixel text-xs text-red-400">LIVES</span>
-                  <div className="flex items-center gap-1">
-                    {[...Array(3)].map((_, i) => (
-                      <Heart 
-                        key={i} 
-                        className={`w-4 h-4 ${i < (userProfile?.lives || 0) ? 'text-red-400 fill-red-400' : 'text-slate-600'}`} 
-                      />
-                    ))}
+                <div className="ml-6 flex items-center gap-3">
+                  <div className="flex items-center gap-2 px-4 py-2 bg-slate-700/50 rounded-lg border border-red-400/30">
+                    <span className="font-pixel text-xs text-red-400">LIVES</span>
+                    <div className="flex items-center gap-1">
+                      {[...Array(3)].map((_, i) => (
+                        <Heart 
+                          key={i} 
+                          className={`w-4 h-4 ${i < (userProfile?.lives || 0) ? 'text-red-400 fill-red-400' : 'text-slate-600'}`} 
+                        />
+                      ))}
+                    </div>
+                    <span className="font-pixel text-xs text-cyan-400">{userProfile?.lives || 0}/3</span>
                   </div>
-                  <span className="font-pixel text-xs text-cyan-400">{userProfile?.lives || 0}/3</span>
+                  
+                  {/* Watch Ad Button for 0 Lives */}
+                  {(userProfile?.lives || 0) === 0 && (
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => setShowAdModal(true)}
+                      className="px-3 py-1 bg-green-600/20 border border-green-400 text-green-400 font-pixel text-xs hover:bg-green-600/30 transition-colors"
+                    >
+                      📺 WATCH AD
+                    </motion.button>
+                  )}
                 </div>
               </div>
             </div>
@@ -411,82 +556,90 @@ export default function PlayPage() {
               <div className="absolute left-1/2 top-0 bottom-0 w-1 bg-gradient-to-b from-purple-400 via-cyan-400 to-green-400 transform -translate-x-1/2 z-0"></div>
               
               <div className="space-y-8">
-                {trainingLevels[selectedSubject as keyof typeof trainingLevels].map((level, index) => {
-                  const status = getLevelStatus(level)
-                  const isLeft = index % 2 === 0
-                  
-                  return (
-                    <motion.div
-                      key={level.id}
-                      initial={{ opacity: 0, x: isLeft ? -50 : 50 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.1 }}
-                      className={`flex items-center ${isLeft ? 'justify-start' : 'justify-end'} relative z-10`}
-                    >
-                      <div className={`w-1/2 ${isLeft ? 'pr-8' : 'pl-8'}`}>
-                        <motion.button
-                          whileHover={status !== "locked" ? { scale: 1.02, y: -2 } : {}}
-                          whileTap={status !== "locked" ? { scale: 0.98 } : {}}
-                          onClick={() => handleLevelSelect(level.id)}
-                          disabled={status === "locked"}
-                          className={`w-full p-4 border-2 transition-all relative ${
-                            status === "completed" 
-                              ? "bg-green-900/50 border-green-400 text-green-300" 
-                              : status === "unlocked" 
-                              ? `bg-slate-800/50 hover:bg-slate-700/50 ${getDifficultyColor(level.difficulty)}`
-                              : "bg-slate-900/50 border-slate-600 text-slate-500 cursor-not-allowed"
-                          }`}
-                        >
-                          {/* Level number circle */}
-                          <div className={`absolute -top-3 ${isLeft ? '-right-3' : '-left-3'} w-8 h-8 rounded-full border-2 flex items-center justify-center font-pixel text-xs ${
-                            status === "completed" 
-                              ? "bg-green-400 border-green-600 text-black" 
-                              : status === "unlocked" 
-                              ? "bg-cyan-400 border-cyan-600 text-black"
-                              : "bg-slate-600 border-slate-700 text-slate-400"
-                          }`}>
-                            {status === "completed" ? <CheckCircle className="w-4 h-4" /> : level.id}
-                          </div>
-                          
-                          <div className={`flex items-center gap-3 ${isLeft ? '' : 'flex-row-reverse'}`}>
-                            <div className={`flex-1 ${isLeft ? 'text-left' : 'text-right'}`}>
-                              <h3 className="font-pixel text-sm mb-1">{level.name}</h3>
-                              <p className="font-terminal text-xs opacity-80 mb-2">{level.description}</p>
-                              
-                              {/* Progress Bar */}
-                              {level.progress > 0 && (
-                                <div className="mb-2">
-                                  <div className="flex justify-between items-center mb-1">
-                                    <span className="font-terminal text-xs opacity-60">Progress</span>
-                                    <span className="font-terminal text-xs opacity-60">{level.progress}/{level.totalQuestions}</span>
-                                  </div>
-                                  <div className="w-full h-1 bg-slate-700 rounded-full">
-                                    <div 
-                                      className="h-full bg-gradient-to-r from-cyan-400 to-purple-400 rounded-full transition-all duration-500"
-                                      style={{ width: `${(level.progress / level.totalQuestions) * 100}%` }}
-                                    />
-                                  </div>
-                                </div>
-                              )}
-                              
-                              <span className={`inline-block px-2 py-1 rounded text-xs font-pixel ${
-                                level.difficulty === "beginner" ? "bg-green-900/50 text-green-400" :
-                                level.difficulty === "intermediate" ? "bg-yellow-900/50 text-yellow-400" :
-                                "bg-red-900/50 text-red-400"
-                              }`}>
-                                {level.difficulty.toUpperCase()}
-                              </span>
+                {progressLoading ? (
+                  <div className="text-center py-8">
+                    <div className="font-pixel text-purple-400">Loading progress...</div>
+                  </div>
+                ) : (
+                  getLevelsWithProgress(selectedSubject).map((level, index) => {
+                    if (!level) return null
+                    
+                    const status = getLevelStatus(level)
+                    const isLeft = index % 2 === 0
+                    
+                    return (
+                      <motion.div
+                        key={level.id}
+                        initial={{ opacity: 0, x: isLeft ? -50 : 50 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: index * 0.1 }}
+                        className={`flex items-center ${isLeft ? 'justify-start' : 'justify-end'} relative z-10`}
+                      >
+                        <div className={`w-1/2 ${isLeft ? 'pr-8' : 'pl-8'}`}>
+                          <motion.button
+                            whileHover={status !== "locked" ? { scale: 1.02, y: -2 } : {}}
+                            whileTap={status !== "locked" ? { scale: 0.98 } : {}}
+                            onClick={() => handleLevelSelect(level.id)}
+                            disabled={status === "locked"}
+                            className={`w-full p-4 border-2 transition-all relative ${
+                              status === "completed" 
+                                ? "bg-green-900/50 border-green-400 text-green-300" 
+                                : status === "unlocked" 
+                                ? `bg-slate-800/50 hover:bg-slate-700/50 ${getDifficultyColor(level.difficulty)}`
+                                : "bg-slate-900/50 border-slate-600 text-slate-500 cursor-not-allowed"
+                            }`}
+                          >
+                            {/* Level number circle */}
+                            <div className={`absolute -top-3 ${isLeft ? '-right-3' : '-left-3'} w-8 h-8 rounded-full border-2 flex items-center justify-center font-pixel text-xs ${
+                              status === "completed" 
+                                ? "bg-green-400 border-green-600 text-black" 
+                                : status === "unlocked" 
+                                ? "bg-cyan-400 border-cyan-600 text-black"
+                                : "bg-slate-600 border-slate-700 text-slate-400"
+                            }`}>
+                              {status === "completed" ? <CheckCircle className="w-4 h-4" /> : level.id}
                             </div>
-                            <div className="text-2xl">
-                              {status === "completed" ? "✅" : 
-                               status === "unlocked" ? "🎯" : "🔒"}
+                            
+                            <div className={`flex items-center gap-3 ${isLeft ? '' : 'flex-row-reverse'}`}>
+                              <div className={`flex-1 ${isLeft ? 'text-left' : 'text-right'}`}>
+                                <h3 className="font-pixel text-sm mb-1">{level.name}</h3>
+                                <p className="font-terminal text-xs opacity-80 mb-2">{level.description}</p>
+                                
+                                {/* Progress Bar */}
+                                {level.progress > 0 && (
+                                  <div className="mb-2">
+                                    <div className="flex justify-between items-center mb-1">
+                                      <span className="font-terminal text-xs opacity-60">Progress</span>
+                                      <span className="font-terminal text-xs opacity-60">{level.progress}/{level.totalQuestions}</span>
+                                    </div>
+                                    <div className="w-full h-1 bg-slate-700 rounded-full">
+                                      <div 
+                                        className="h-full bg-gradient-to-r from-cyan-400 to-purple-400 rounded-full transition-all duration-500"
+                                        style={{ width: `${(level.progress / level.totalQuestions) * 100}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                <span className={`inline-block px-2 py-1 rounded text-xs font-pixel ${
+                                  level.difficulty === "beginner" ? "bg-green-900/50 text-green-400" :
+                                  level.difficulty === "intermediate" ? "bg-yellow-900/50 text-yellow-400" :
+                                  "bg-red-900/50 text-red-400"
+                                }`}>
+                                  {level.difficulty.toUpperCase()}
+                                </span>
+                              </div>
+                              <div className="text-2xl">
+                                {status === "completed" ? "✅" : 
+                                 status === "unlocked" ? "🎯" : "🔒"}
+                              </div>
                             </div>
-                          </div>
-                        </motion.button>
-                      </div>
-                    </motion.div>
-                  )
-                })}
+                          </motion.button>
+                        </div>
+                      </motion.div>
+                    )
+                  })
+                )}
               </div>
             </div>
           </motion.div>
@@ -523,7 +676,7 @@ export default function PlayPage() {
                     {gameMode === "pvp" 
                       ? "ELO-BASED" 
                       : selectedLevel 
-                        ? trainingLevels[selectedSubject as keyof typeof trainingLevels].find(l => l.id === selectedLevel)?.name
+                        ? getLevelWithProgress(selectedSubject, selectedLevel)?.name || `Level ${selectedLevel}`
                         : "NONE"
                     }
                   </div>
@@ -580,6 +733,40 @@ export default function PlayPage() {
             </div>
           </motion.div>
         )}
+        
+        {/* No Lives Warning */}
+        {gameMode === "training" && selectedLevel && (userProfile?.lives || 0) === 0 && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-yellow-500/20 border-2 border-yellow-400 p-4 mb-6 text-center"
+          >
+            <div className="flex items-center justify-center gap-3 mb-3">
+              <Heart className="w-5 h-5 text-red-400" />
+              <p className="font-pixel text-yellow-300 text-sm">OUT OF LIVES!</p>
+              <Heart className="w-5 h-5 text-red-400" />
+            </div>
+            <p className="font-terminal text-yellow-200 text-sm mb-4">
+              You need at least 1 life to start training mode. Watch an ad to restore a life!
+            </p>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowAdModal(true)}
+              className="retro-button font-pixel text-slate-900 px-6 py-3 text-sm"
+            >
+              📺 WATCH AD FOR LIFE
+            </motion.button>
+          </motion.div>
+        )}
+
+        {/* Ad Watch Modal */}
+        <AdWatchModal
+          isOpen={showAdModal}
+          onClose={() => setShowAdModal(false)}
+          onAdComplete={handleAdComplete}
+          currentLives={userProfile?.lives || 0}
+        />
       </div>
     </div>
   )

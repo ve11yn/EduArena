@@ -26,8 +26,10 @@ export default function DuelPage({ params }: DuelPageProps) {
   const [waitingForBot, setWaitingForBot] = useState(false)
   const [error, setError] = useState("")
   const [showNextQuestion, setShowNextQuestion] = useState(false)
+  const [questionFeedback, setQuestionFeedback] = useState<any>(null)
+  const [showFeedback, setShowFeedback] = useState(false)
 
-  const { user, userProfile } = useAuth()
+  const { user, userProfile, refreshUserProfile } = useAuth()
   const router = useRouter()
 
   const fetchDuel = useCallback(async () => {
@@ -102,6 +104,22 @@ export default function DuelPage({ params }: DuelPageProps) {
     return () => unsubscribe()
   }, [user, userProfile, router, fetchDuel, params.id, startTime])
 
+  // Add beforeunload event to refresh profile when navigating away
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (refreshUserProfile) {
+        console.log('🚪 Duel page: Navigating away, refreshing user profile...')
+        refreshUserProfile()
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [refreshUserProfile])
+
   // Add this function to reset state for next question
   const resetForNextQuestion = () => {
     setSubmitted(false)
@@ -110,11 +128,16 @@ export default function DuelPage({ params }: DuelPageProps) {
     setTimeLeft(30)
     setStartTime(Date.now())
     setError("")
+    setQuestionFeedback(null)
+    setShowFeedback(false)
   }
 
   // Update the handleSubmitAnswer function to better handle training mode:
   const handleSubmitAnswer = async () => {
-    if (submitted || !startTime || !userProfile || selectedAnswer === null) return
+    if (submitted || !startTime || !userProfile) return
+    
+    // If no answer selected and time hasn't run out, don't submit
+    if (selectedAnswer === null && timeLeft > 0) return
 
     // Log the answer submission for debugging
     const currentQuestion = duel?.quizData?.[duel?.currentQuestionIndex ?? 0];
@@ -122,7 +145,7 @@ export default function DuelPage({ params }: DuelPageProps) {
       console.log(`🎯 FRONTEND: Submitting answer for question ${duel.currentQuestionIndex + 1}`);
       console.log(`   Question: ${currentQuestion.question.substring(0, 50)}...`);
       console.log(`   Selected answer index: ${selectedAnswer}`);
-      console.log(`   Selected option: "${currentQuestion.options[selectedAnswer] || 'Invalid'}"`);
+      console.log(`   Selected option: "${selectedAnswer !== null && selectedAnswer >= 0 ? currentQuestion.options[selectedAnswer] || 'Invalid' : 'TIMEOUT/NO ANSWER'}"`);
       console.log(`   Correct answer index: ${currentQuestion.correct_answer}`);
       console.log(`   Correct option: "${currentQuestion.options[currentQuestion.correct_answer] || 'Invalid'}"`);
       console.log(`   Is correct: ${selectedAnswer === currentQuestion.correct_answer}`);
@@ -133,17 +156,62 @@ export default function DuelPage({ params }: DuelPageProps) {
     const timeElapsed = Date.now() - startTime
 
     try {
-      const result = await submitAnswer(params.id, selectedAnswer.toString(), timeElapsed, userProfile.id)
+      // Convert selectedAnswer to string, use "-1" for timeout/no answer
+      const answerToSubmit = selectedAnswer !== null ? selectedAnswer.toString() : "-1"
+      
+      const result = await submitAnswer(params.id, answerToSubmit, timeElapsed, userProfile.id)
 
       if (result.success) {
         console.log(`✅ FRONTEND: Answer submitted successfully`);
-        if (result.waitingForBot) {
-          setWaitingForBot(true)
-        } else if (result.nextQuestion) {
-          // Next question will be handled by real-time listener
-          console.log("Moving to next question...")
-        } else if (result.completed && result.result) {
-          setResult(result.result)
+        
+        // Show feedback if available
+        if (result.questionFeedback) {
+          console.log('📋 FEEDBACK RECEIVED:', result.questionFeedback)
+          setQuestionFeedback(result.questionFeedback)
+          setShowFeedback(true)
+          
+          // Hide feedback after 3 seconds and continue
+          setTimeout(() => {
+            setShowFeedback(false)
+            if (result.waitingForBot) {
+              setWaitingForBot(true)
+            } else if (result.nextQuestion) {
+              // Next question will be handled by real-time listener
+              console.log("Moving to next question...")
+            } else if (result.completed && result.result) {
+              console.log('🎮 Game completed, refreshing user profile for updated lives...')
+              setResult(result.result)
+              // Refresh user profile to get updated lives after training mode
+              if (refreshUserProfile) {
+                refreshUserProfile()
+                // Also trigger a small delay and another refresh to ensure Firestore updates propagate
+                setTimeout(() => {
+                  console.log('🔄 Secondary profile refresh after game completion...')
+                  refreshUserProfile()
+                }, 1000)
+              }
+            }
+          }, 3000)
+        } else {
+          // No feedback, continue immediately
+          if (result.waitingForBot) {
+            setWaitingForBot(true)
+          } else if (result.nextQuestion) {
+            // Next question will be handled by real-time listener
+            console.log("Moving to next question...")
+          } else if (result.completed && result.result) {
+            console.log('🎮 Game completed, refreshing user profile for updated lives...')
+            setResult(result.result)
+            // Refresh user profile to get updated lives after training mode
+            if (refreshUserProfile) {
+              refreshUserProfile()
+              // Also trigger a small delay and another refresh to ensure Firestore updates propagate
+              setTimeout(() => {
+                console.log('🔄 Secondary profile refresh after game completion...')
+                refreshUserProfile()
+              }, 1000)
+            }
+          }
         }
       } else {
         console.error(`❌ FRONTEND: Answer submission failed:`, result.error);
@@ -157,6 +225,74 @@ export default function DuelPage({ params }: DuelPageProps) {
     }
   }
 
+  // Handle timeout submission
+  const handleTimeoutSubmission = async () => {
+    if (!userProfile || !startTime) return
+    
+    console.log('⏰ Timer ran out! Auto-submitting wrong answer...')
+    setSubmitted(true)
+    setError("")
+    const timeElapsed = Date.now() - startTime
+
+    try {
+      const result = await submitAnswer(params.id, "-1", timeElapsed, userProfile.id)
+      
+      if (result.success) {
+        console.log(`✅ FRONTEND: Timeout answer submitted successfully`);
+        
+        // Show feedback if available
+        if (result.questionFeedback) {
+          console.log('📋 TIMEOUT FEEDBACK RECEIVED:', result.questionFeedback)
+          setQuestionFeedback(result.questionFeedback)
+          setShowFeedback(true)
+          
+          // Hide feedback after 3 seconds and continue
+          setTimeout(() => {
+            setShowFeedback(false)
+            if (result.waitingForBot) {
+              setWaitingForBot(true)
+            } else if (result.nextQuestion) {
+              console.log("Moving to next question...")
+            } else if (result.completed && result.result) {
+              console.log('🎮 Timeout game completed, refreshing user profile for updated lives...')
+              setResult(result.result)
+              // Refresh user profile to get updated lives after training mode
+              if (refreshUserProfile) {
+                refreshUserProfile()
+                // Also trigger a small delay and another refresh to ensure Firestore updates propagate
+                setTimeout(() => {
+                  console.log('🔄 Secondary profile refresh after timeout game completion...')
+                  refreshUserProfile()
+                }, 1000)
+              }
+            }
+          }, 3000)
+        } else {
+          if (result.waitingForBot) {
+            setWaitingForBot(true)
+          } else if (result.nextQuestion) {
+            console.log("Moving to next question...")
+          } else if (result.completed && result.result) {
+            console.log('🎮 Timeout game completed, refreshing user profile for updated lives...')
+            setResult(result.result)
+            // Refresh user profile to get updated lives after training mode
+            if (refreshUserProfile) {
+              refreshUserProfile()
+            }
+          }
+        }
+      } else {
+        console.error(`❌ FRONTEND: Timeout submission failed:`, result.error);
+        setError(result.error || "Failed to submit timeout answer")
+        setSubmitted(false)
+      }
+    } catch (error) {
+      console.error("Timeout submit error:", error)
+      setError("Failed to submit timeout answer")
+      setSubmitted(false)
+    }
+  }
+
   // Update the timer reset logic:
   useEffect(() => {
     if (!startTime || submitted || timeLeft <= 0 || showNextQuestion) return
@@ -166,8 +302,9 @@ export default function DuelPage({ params }: DuelPageProps) {
       const remaining = Math.max(0, 30 - elapsed)
       setTimeLeft(remaining)
 
-      if (remaining === 0) {
-        handleSubmitAnswer()
+      if (remaining === 0 && !submitted) {
+        // Timer ran out - call timeout handler
+        handleTimeoutSubmission()
       }
     }, 100)
 
@@ -367,11 +504,26 @@ export default function DuelPage({ params }: DuelPageProps) {
             )}
 
             <div className="flex gap-4 justify-center">
-              <button onClick={() => router.push("/play")} className="retro-button font-pixel text-slate-900 px-6 py-3">
+              <button 
+                onClick={() => {
+                  // Refresh profile before navigation to ensure dashboard has latest data
+                  if (refreshUserProfile) {
+                    refreshUserProfile()
+                  }
+                  router.push("/play")
+                }} 
+                className="retro-button font-pixel text-slate-900 px-6 py-3"
+              >
                 {isTrainingMode ? "🤖 TRAIN AGAIN" : "⚔️ BATTLE AGAIN"}
               </button>
               <button
-                onClick={() => router.push("/dashboard")}
+                onClick={() => {
+                  // Refresh profile before navigation to ensure dashboard has latest data
+                  if (refreshUserProfile) {
+                    refreshUserProfile()
+                  }
+                  router.push("/dashboard")
+                }}
                 className="bg-slate-800/80 border-2 border-cyan-400 text-cyan-400 font-pixel px-6 py-3 hover:bg-cyan-400/10 transition-all"
               >
                 📊 DASHBOARD
@@ -384,27 +536,27 @@ export default function DuelPage({ params }: DuelPageProps) {
   }
 
   // Next Question Indicator
-  if (showNextQuestion) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0.9 }}
-          className="text-center bg-slate-800/80 border-2 border-green-400 p-8 max-w-md"
-        >
-          <motion.div animate={{ x: [0, 10, 0] }} transition={{ duration: 0.5, repeat: Number.POSITIVE_INFINITY }}>
-            <ArrowRight className="w-16 h-16 text-green-400 mx-auto mb-4" />
-          </motion.div>
-          <h1 className="font-pixel text-xl text-green-400 mb-4">BOTH CORRECT!</h1>
-          <p className="font-terminal text-green-300 mb-4">Moving to next question...</p>
-          <div className="font-pixel text-sm text-cyan-400">
-            QUESTION {duel.currentQuestionIndex + 1} OF {duel.maxQuestions}
-          </div>
-        </motion.div>
-      </div>
-    )
-  }
+  // if (showNextQuestion) {
+  //   return (
+  //     <div className="min-h-screen flex items-center justify-center">
+  //       <motion.div
+  //         initial={{ opacity: 0, scale: 0.9 }}
+  //         animate={{ opacity: 1, scale: 1 }}
+  //         exit={{ opacity: 0, scale: 0.9 }}
+  //         className="text-center bg-slate-800/80 border-2 border-green-400 p-8 max-w-md"
+  //       >
+  //         <motion.div animate={{ x: [0, 10, 0] }} transition={{ duration: 0.5, repeat: Number.POSITIVE_INFINITY }}>
+  //           <ArrowRight className="w-16 h-16 text-green-400 mx-auto mb-4" />
+  //         </motion.div>
+  //         <h1 className="font-pixel text-xl text-green-400 mb-4">BOTH CORRECT!</h1>
+  //         <p className="font-terminal text-green-300 mb-4">Moving to next question...</p>
+  //         <div className="font-pixel text-sm text-cyan-400">
+  //           QUESTION {duel.currentQuestionIndex + 1} OF {duel.maxQuestions}
+  //         </div>
+  //       </motion.div>
+  //     </div>
+  //   )
+  // }
 
   // Main duel interface
   const currentQuestion = duel.quizData?.[duel.currentQuestionIndex] as QuizQuestion
@@ -553,6 +705,81 @@ export default function DuelPage({ params }: DuelPageProps) {
             </motion.p>
           )}
         </motion.div>
+
+        {/* Question Feedback Modal */}
+        <AnimatePresence>
+          {showFeedback && questionFeedback && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+            >
+              <motion.div
+                initial={{ scale: 0.8, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.8, opacity: 0 }}
+                className={`p-8 border-2 max-w-md w-full text-center ${
+                  questionFeedback.correct
+                    ? "bg-green-900/90 border-green-400"
+                    : "bg-red-900/90 border-red-400"
+                }`}
+              >
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ delay: 0.2, type: "spring" }}
+                  className="text-6xl mb-4"
+                >
+                  {questionFeedback.correct ? "✅" : "❌"}
+                </motion.div>
+                
+                <h3 className={`font-pixel text-2xl mb-4 ${
+                  questionFeedback.correct ? "text-green-300" : "text-red-300"
+                }`}>
+                  {questionFeedback.correct ? "CORRECT!" : "WRONG!"}
+                </h3>
+                
+                <div className="space-y-3 text-left">
+                  {questionFeedback.userAnswer >= 0 ? (
+                    <p className="font-terminal text-sm text-slate-300">
+                      <span className="text-cyan-400">Your answer:</span> {questionFeedback.options[questionFeedback.userAnswer] || "Invalid"}
+                    </p>
+                  ) : (
+                    <p className="font-terminal text-sm text-red-300">
+                      <span className="text-cyan-400">Your answer:</span> No answer / Timeout
+                    </p>
+                  )}
+                  
+                  <p className="font-terminal text-sm text-slate-300">
+                    <span className="text-green-400">Correct answer:</span> {questionFeedback.options[questionFeedback.correctAnswer] || "Unknown"}
+                  </p>
+                  
+                  {questionFeedback.explanation && (
+                    <div className="pt-2 border-t border-slate-600">
+                      <p className="font-terminal text-xs text-slate-400 mb-1">Explanation:</p>
+                      <p className="font-terminal text-sm text-slate-300">{questionFeedback.explanation}</p>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="mt-6">
+                  <div className="w-full h-1 bg-slate-700 rounded-full">
+                    <motion.div
+                      initial={{ width: "0%" }}
+                      animate={{ width: "100%" }}
+                      transition={{ duration: 3 }}
+                      className="h-full bg-gradient-to-r from-cyan-400 to-purple-400 rounded-full"
+                    />
+                  </div>
+                  <p className="font-terminal text-xs text-slate-400 mt-2">
+                    Continuing in 3 seconds...
+                  </p>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   )

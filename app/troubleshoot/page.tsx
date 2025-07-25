@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import { collection, doc, getDoc, getDocs, deleteDoc, updateDoc, addDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase/config"
+import { updateUserLives } from "@/lib/firebase/firestore"
 
 export default function TroubleshootingPage() {
   const [userId, setUserId] = useState("")
@@ -197,6 +198,25 @@ export default function TroubleshootingPage() {
     }
   }
 
+  const setUserLives = async (lives: number) => {
+    if (!results?.user?.id) return
+    
+    setLoading(true)
+    setError("")
+    
+    try {
+      await updateUserLives(results.user.id, lives)
+      
+      // Refresh results
+      await searchUser()
+      
+    } catch (err: any) {
+      setError(`Set lives failed: ${err.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="min-h-screen p-4">
       <div className="max-w-4xl mx-auto">
@@ -316,6 +336,41 @@ export default function TroubleshootingPage() {
                     <div><span className="text-slate-400">ELO Math:</span> {results.user.elo?.math || 'N/A'}</div>
                     <div><span className="text-slate-400">ELO Bahasa:</span> {results.user.elo?.bahasa || 'N/A'}</div>
                     <div><span className="text-slate-400">ELO English:</span> {results.user.elo?.english || 'N/A'}</div>
+                    <div><span className="text-slate-400">Lives:</span> {results.user.lives !== undefined ? results.user.lives : 'N/A'}</div>
+                  </div>
+                  
+                  {/* Lives Testing */}
+                  <div className="mt-4 p-3 bg-slate-900/50 border border-cyan-600">
+                    <h4 className="font-pixel text-cyan-400 mb-2 text-sm">LIVES TESTING</h4>
+                    <div className="flex gap-2">
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setUserLives(0)}
+                        disabled={loading}
+                        className="bg-red-600/80 border border-red-400 text-red-300 font-pixel px-3 py-1 text-xs hover:bg-red-600 transition-colors disabled:opacity-50"
+                      >
+                        SET 0 LIVES
+                      </motion.button>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setUserLives(1)}
+                        disabled={loading}
+                        className="bg-yellow-600/80 border border-yellow-400 text-yellow-300 font-pixel px-3 py-1 text-xs hover:bg-yellow-600 transition-colors disabled:opacity-50"
+                      >
+                        SET 1 LIFE
+                      </motion.button>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setUserLives(3)}
+                        disabled={loading}
+                        className="bg-green-600/80 border border-green-400 text-green-300 font-pixel px-3 py-1 text-xs hover:bg-green-600 transition-colors disabled:opacity-50"
+                      >
+                        SET 3 LIVES
+                      </motion.button>
+                    </div>
                   </div>
                 </div>
                 

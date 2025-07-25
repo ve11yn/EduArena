@@ -17,6 +17,18 @@ import type { SubjectElo } from "./auth"
 
 export type { SubjectElo } from "./auth"
 
+// Training progress interface
+export interface TrainingProgress {
+  [subject: string]: {
+    [levelId: string]: {
+      progress: number
+      totalQuestions: number
+      completed: boolean
+      unlocked: boolean
+    }
+  }
+}
+
 export interface User {
   id: string
   username: string
@@ -25,6 +37,7 @@ export interface User {
   preferredSubject?: keyof SubjectElo
   placementTestCompleted: boolean
   lives: number // Global lives count for training mode
+  trainingProgress?: TrainingProgress // Training progress for each subject and level
   createdAt: Date
 }
 
@@ -55,6 +68,11 @@ export interface Duel {
   status: "waiting" | "in_progress" | "completed" | "cancelled"
   isTraining?: boolean
   maxQuestions: number
+  trainingLevel?: {
+    levelId: number
+    levelName: string
+    totalQuestions: number
+  }
   createdAt: Date
   startedAt?: Date
   completedAt?: Date
@@ -541,5 +559,181 @@ export const regenerateUserLife = async (uid: string) => {
     return user?.lives || 0
   } catch (error) {
     throw error
+  }
+}
+
+export const restoreLifeByWatchingAd = async (uid: string) => {
+  try {
+    const user = await getUserById(uid)
+    if (user && user.lives < 3) {
+      const newLives = Math.min(3, user.lives + 1) // Add 1 life, max 3
+      await updateUserLives(uid, newLives)
+      console.log(`🎬 User ${uid} watched ad, lives restored: ${user.lives} → ${newLives}`)
+      return { success: true, newLives, livesGained: 1 }
+    }
+    return { success: false, error: "Lives already at maximum" }
+  } catch (error) {
+    console.error("Error restoring life by ad:", error)
+    return { success: false, error: "Failed to restore life" }
+  }
+}
+
+export const subscribeToUserProfile = (userId: string, callback: (user: User | null) => void) => {
+  console.log('📡 Setting up real-time listener for user profile:', userId)
+  return onSnapshot(doc(db, "users", userId), (doc) => {
+    if (doc.exists()) {
+      const data = doc.data()
+      const user = {
+        id: doc.id,
+        ...data,
+        createdAt: data.createdAt.toDate(),
+      } as User
+      console.log('📨 User profile update received, lives:', user.lives)
+      callback(user)
+    } else {
+      console.log('⚠️ User profile not found')
+      callback(null)
+    }
+  }, (error) => {
+    console.error('❌ Error in user profile listener:', error)
+    callback(null)
+  })
+}
+
+// Training Progress Functions
+export const updateTrainingProgress = async (
+  userId: string,
+  subject: string,
+  levelId: number,
+  progressIncrement: number,
+  totalQuestions: number = 15
+) => {
+  try {
+    const userRef = doc(db, "users", userId)
+    const userDoc = await getDoc(userRef)
+    
+    if (!userDoc.exists()) {
+      throw new Error("User not found")
+    }
+
+    const userData = userDoc.data()
+    const currentProgress = userData.trainingProgress || {}
+
+    // Initialize subject if not exists
+    if (!currentProgress[subject]) {
+      currentProgress[subject] = {}
+    }
+
+    // Initialize level if not exists
+    if (!currentProgress[subject][levelId.toString()]) {
+      currentProgress[subject][levelId.toString()] = {
+        progress: 0,
+        totalQuestions,
+        completed: false,
+        unlocked: true
+      }
+    }
+
+    const levelProgress = currentProgress[subject][levelId.toString()]
+    levelProgress.progress = Math.min(levelProgress.progress + progressIncrement, totalQuestions)
+    
+    // Check if level is completed
+    if (levelProgress.progress >= totalQuestions) {
+      levelProgress.completed = true
+      
+      // Unlock next level
+      const nextLevelId = (levelId + 1).toString()
+      if (!currentProgress[subject][nextLevelId]) {
+        currentProgress[subject][nextLevelId] = {
+          progress: 0,
+          totalQuestions,
+          completed: false,
+          unlocked: true
+        }
+      } else {
+        currentProgress[subject][nextLevelId].unlocked = true
+      }
+    }
+
+    await updateDoc(userRef, {
+      trainingProgress: currentProgress
+    })
+
+    console.log(`✅ Training progress updated: ${subject} level ${levelId}, progress: ${levelProgress.progress}/${totalQuestions}`)
+    
+    return {
+      success: true,
+      levelCompleted: levelProgress.completed,
+      nextLevelUnlocked: levelProgress.progress >= totalQuestions,
+      currentProgress: levelProgress.progress,
+      totalQuestions
+    }
+  } catch (error) {
+    console.error("Error updating training progress:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to update progress"
+    }
+  }
+}
+
+export const initializeTrainingProgress = async (userId: string) => {
+  try {
+    const userRef = doc(db, "users", userId)
+    const userDoc = await getDoc(userRef)
+    
+    if (!userDoc.exists()) {
+      throw new Error("User not found")
+    }
+
+    const userData = userDoc.data()
+    if (userData.trainingProgress) {
+      // Already initialized
+      return { success: true }
+    }
+
+    // Initialize with first level unlocked for each subject
+    const initialProgress: TrainingProgress = {
+      math: {
+        "1": { progress: 0, totalQuestions: 15, completed: false, unlocked: true }
+      },
+      bahasa: {
+        "1": { progress: 0, totalQuestions: 15, completed: false, unlocked: true }
+      },
+      english: {
+        "1": { progress: 0, totalQuestions: 15, completed: false, unlocked: true }
+      }
+    }
+
+    await updateDoc(userRef, {
+      trainingProgress: initialProgress
+    })
+
+    console.log(`✅ Training progress initialized for user ${userId}`)
+    
+    return { success: true }
+  } catch (error) {
+    console.error("Error initializing training progress:", error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Failed to initialize progress"
+    }
+  }
+}
+
+export const getTrainingProgress = async (userId: string): Promise<TrainingProgress | null> => {
+  try {
+    const userRef = doc(db, "users", userId)
+    const userDoc = await getDoc(userRef)
+    
+    if (!userDoc.exists()) {
+      return null
+    }
+
+    const userData = userDoc.data()
+    return userData.trainingProgress || null
+  } catch (error) {
+    console.error("Error getting training progress:", error)
+    return null
   }
 }

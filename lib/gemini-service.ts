@@ -262,7 +262,8 @@ function getSpecificTopic(subject: string, difficulty: string): string {
 export async function generateGeminiQuizQuestions(
   subject: string,
   difficulty: string,
-  count: number = 5
+  count: number = 5,
+  overrideTopic?: string // Add optional parameter to override topic selection
 ): Promise<AIQuizQuestion[]> {
   console.log(`🤖 Gemini Service: Generating ${count} questions for ${subject} (${difficulty})`)
   
@@ -284,8 +285,8 @@ export async function generateGeminiQuizQuestions(
     };
 
     // Select a specific focused topic for this question set
-    const specificTopic = getSpecificTopic(subject, difficulty);
-    console.log(`🎯 Focusing on specific topic: ${specificTopic}`);
+    const specificTopic = overrideTopic || getSpecificTopic(subject, difficulty);
+    console.log(`🎯 Focusing on specific topic: ${specificTopic}${overrideTopic ? ' (override)' : ' (auto-selected)'}`);
 
     const subjectName = subjectMap[subject as keyof typeof subjectMap] || subject;
     const difficultyDesc = difficultyMap[difficulty as keyof typeof difficultyMap] || difficulty;
