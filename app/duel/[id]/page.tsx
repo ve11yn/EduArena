@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
-import { getDuelWithUsers, subscribeToDuel, getUserEloForSubject } from "@/lib/firebase/firestore"
+import { getDuelWithUsers, subscribeToDuel, getUserEloForSubject, createDuel } from "@/lib/firebase/firestore"
 import { submitAnswer } from "@/lib/duel-service"
 import { Clock, User, Trophy, Zap, Bot } from "lucide-react"
 import type { DuelWithUsers, QuizQuestion } from "@/lib/firebase/firestore"
@@ -39,73 +39,101 @@ export default function DuelPage({ params }: DuelPageProps) {
   const { user, userProfile, refreshUserProfile } = useAuth()
   const router = useRouter()
 
-  const fallbackToFirebase = useCallback(() => {
+  const fallbackToFirebase = useCallback(async () => {
     console.log("🔥 Falling back to Firebase mode")
-    fetchDuel()
+    
+    try {
+      // First try to fetch existing duel
+      const duelData = await getDuelWithUsers(params.id)
+      
+      if (duelData) {
+        console.log("✅ Found existing Firebase duel")
+        setDuel(duelData)
+        setLoading(false)
 
-    // Subscribe to real-time updates for Firebase games
-    const unsubscribe = subscribeToDuel(params.id, (updatedDuel) => {
-      if (updatedDuel) {
-        setDuel((prev) => {
-          if (!prev) return null
+        // Subscribe to real-time updates for Firebase games
+        const unsubscribe = subscribeToDuel(params.id, (updatedDuel) => {
+          if (updatedDuel) {
+            setDuel((prev) => {
+              if (!prev) return null
 
-          // Check if question index changed (next question)
-          if (prev.currentQuestionIndex !== updatedDuel.currentQuestionIndex) {
-            setShowNextQuestion(true)
-            resetForNextQuestion()
+              // Check if question index changed (next question)
+              if (prev.currentQuestionIndex !== updatedDuel.currentQuestionIndex) {
+                setShowNextQuestion(true)
+                resetForNextQuestion()
 
-            // Hide next question indicator after 2 seconds
-            setTimeout(() => setShowNextQuestion(false), 2000)
-          }
+                // Hide next question indicator after 2 seconds
+                setTimeout(() => setShowNextQuestion(false), 2000)
+              }
 
-          // Check if bot answered (for training mode)
-          if (
-            updatedDuel.isTraining &&
-            updatedDuel.player2Answers &&
-            updatedDuel.player2Answers[updatedDuel.currentQuestionIndex] !== undefined &&
-            waitingForBot
-          ) {
-            setWaitingForBot(false)
-          }
+              // Check if bot answered (for training mode)
+              if (
+                updatedDuel.isTraining &&
+                updatedDuel.player2Answers &&
+                updatedDuel.player2Answers[updatedDuel.currentQuestionIndex] !== undefined &&
+                waitingForBot
+              ) {
+                setWaitingForBot(false)
+              }
 
-          return {
-            ...updatedDuel,
-            player1: prev.player1,
-            player2: prev.player2,
+              return {
+                ...updatedDuel,
+                player1: prev.player1,
+                player2: prev.player2,
+              }
+            })
+
+            // Start timer when both players are present and quiz is ready
+            if (updatedDuel.status === "in_progress" && updatedDuel.quizData && !startTime) {
+              setStartTime(Date.now())
+            }
           }
         })
 
-        // Start timer when both players are present and quiz is ready
-        if (updatedDuel.status === "in_progress" && updatedDuel.quizData && !startTime) {
-          setStartTime(Date.now())
+        return () => unsubscribe()
+      } else {
+        // If no Firebase duel exists, create a training duel with AI opponent
+        console.log("⚠️ No Firebase duel found, creating AI training duel as fallback")
+        
+        // Use the default subject from user profile or 'math'
+        const subject = userProfile?.preferredSubject || 'math'
+        
+        // Generate quiz questions for the training duel
+        const { generateQuizQuestions } = await import('@/lib/quiz-generator')
+        const quizData = await generateQuizQuestions(subject, "intermediate", 5)
+        
+        // Create a training duel with AI opponent
+        const trainingDuelData = {
+          player1Id: userProfile!.id,
+          player2Id: "bot_intermediate", // AI opponent
+          subject: subject,
+          currentQuestionIndex: 0,
+          player1Answers: [],
+          player2Answers: [],
+          player1Time: [],
+          player2Time: [],
+          player1Score: 0,
+          player2Score: 0,
+          status: "in_progress" as const,
+          isTraining: true,
+          maxQuestions: 5,
+          quizData: quizData, // Include the generated questions
+          startedAt: new Date(),
         }
-      }
-    })
 
-    return () => unsubscribe()
-  }, [params.id, startTime, waitingForBot])
-
-  const fetchDuel = useCallback(async () => {
-    try {
-      const duelData = await getDuelWithUsers(params.id)
-      if (!duelData) {
-        router.push("/dashboard")
+        const duelId = await createDuel(trainingDuelData)
+        console.log("✅ Created fallback training duel:", duelId)
+        
+        // Redirect to the new training duel
+        router.replace(`/duel/${duelId}`)
         return
       }
-
-      setDuel(duelData)
-      setLoading(false)
-
-      // Start timer when both players are present and quiz is ready
-      if (duelData.status === "in_progress" && duelData.quizData && !startTime) {
-        setStartTime(Date.now())
-      }
     } catch (error) {
-      console.error("Error fetching duel:", error)
-      setError("Failed to load duel")
+      console.error("Error in Firebase fallback:", error)
+      setError("Failed to load game. Redirecting to dashboard...")
       setTimeout(() => router.push("/dashboard"), 3000)
     }
-  }, [params.id, router, startTime])
+  }, [params.id, startTime, waitingForBot, userProfile, router])
 
   useEffect(() => {
     if (!user || !userProfile) {
