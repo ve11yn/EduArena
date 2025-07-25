@@ -96,6 +96,22 @@ app.prepare().then(() => {
         
         console.log(`🎯 Match found! ${player1.username} vs ${player2.username}`)
         
+        // Verify both players are still connected before creating session
+        const player1Socket = io.sockets.sockets.get(player1.socketId)
+        const player2Socket = io.sockets.sockets.get(player2.socketId)
+        
+        if (!player1Socket) {
+          console.log("⚠️ Player1 disconnected, putting player2 back in queue")
+          queue.unshift(player2) // Put player2 back at front of queue
+          return
+        }
+        
+        if (!player2Socket) {
+          console.log("⚠️ Player2 disconnected, putting player1 back in queue")
+          queue.unshift(player1) // Put player1 back at front of queue
+          return
+        }
+        
         // Create game session
         await createGameSession(player1, player2, data.subject)
       }
@@ -180,13 +196,30 @@ app.prepare().then(() => {
 
     socket.on("disconnect", () => {
       console.log("🔌 Player disconnected:", socket.id)
-      // Clean up player from queues and sessions
+      
+      // Clean up player from queues
+      let playerRemoved = false
       for (const [subject, queue] of matchmakingQueue.entries()) {
         const index = queue.findIndex((p) => p.socketId === socket.id)
         if (index !== -1) {
+          const removedPlayer = queue[index]
           queue.splice(index, 1)
+          console.log(`🚪 Removed ${removedPlayer.username} from ${subject} queue`)
+          playerRemoved = true
           break
         }
+      }
+      
+      // Clean up from active sessions
+      const sessionId = playerSessions.get(socket.id)
+      if (sessionId) {
+        console.log(`🎮 Cleaning up session for disconnected player: ${sessionId}`)
+        playerSessions.delete(socket.id)
+        // Could also pause/end the game session here if needed
+      }
+      
+      if (!playerRemoved) {
+        console.log("ℹ️ Disconnected player was not in any queue")
       }
     })
   })
@@ -260,12 +293,19 @@ app.prepare().then(() => {
       const player1Socket = io.sockets.sockets.get(player1.socketId)
       const player2Socket = io.sockets.sockets.get(player2.socketId)
 
+      console.log("📡 Notifying players of match:")
+      console.log("👤 Player1:", player1.username, "Socket exists:", !!player1Socket)
+      console.log("👤 Player2:", player2.username, "Socket exists:", !!player2Socket)
+
       if (player1Socket) {
         player1Socket.emit("match-found", {
           duelId,
           opponent: { username: player2.username, elo: player2.userElo },
           isPlayer1: true,
         })
+        console.log("✅ Match-found sent to player1:", player1.username)
+      } else {
+        console.error("❌ Player1 socket not found:", player1.socketId)
       }
 
       if (player2Socket) {
@@ -274,6 +314,9 @@ app.prepare().then(() => {
           opponent: { username: player1.username, elo: player1.userElo },
           isPlayer1: false,
         })
+        console.log("✅ Match-found sent to player2:", player2.username)
+      } else {
+        console.error("❌ Player2 socket not found:", player2.socketId)
       }
 
       console.log("🎮 Game session created, waiting for players to join...")
