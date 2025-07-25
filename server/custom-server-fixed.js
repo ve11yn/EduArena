@@ -163,8 +163,11 @@ app.prepare().then(() => {
     socket.on("join-game", async (data) => {
       console.log("🎮 Player attempting to join game:", data)
       console.log("📊 Active sessions:", Array.from(activeSessions.keys()))
+      console.log("🔍 Looking for session with duelId:", data.duelId)
       
       let session = activeSessions.get(data.duelId)
+      console.log("🎯 Session found:", !!session)
+      
       if (!session) {
         console.log("❌ Game session not found for duel:", data.duelId)
         console.log("🔄 Creating fallback AI training session...")
@@ -201,23 +204,45 @@ app.prepare().then(() => {
       }
 
       console.log("✅ Session found, updating player socket")
+      console.log("📋 Session details:", {
+        player1: session.player1.userId,
+        player2: session.player2.userId,
+        currentSockets: {
+          player1: session.player1.socketId,
+          player2: session.player2.socketId
+        }
+      })
       
       // Update socket mapping
       if (session.player1.userId === data.userId) {
+        console.log("🎮 Updating Player1 socket from", session.player1.socketId, "to", socket.id)
         session.player1.socketId = socket.id
         playerSessions.set(socket.id, data.duelId)
         console.log("🎮 Player1 joined game:", data.duelId)
       } else if (session.player2.userId === data.userId) {
+        console.log("🎮 Updating Player2 socket from", session.player2.socketId, "to", socket.id)
         session.player2.socketId = socket.id
         playerSessions.set(socket.id, data.duelId)
         console.log("🎮 Player2 joined game:", data.duelId)
+      } else {
+        console.log("⚠️ User ID not recognized in session:", data.userId)
+        console.log("📋 Expected player1:", session.player1.userId)
+        console.log("📋 Expected player2:", session.player2.userId)
       }
 
       // Check if both players are ready and start game
       const bothPlayersJoined = session.player1.socketId && session.player2.socketId
+      console.log("🔍 Both players joined check:", {
+        player1Socket: !!session.player1.socketId,
+        player2Socket: !!session.player2.socketId,
+        bothJoined: bothPlayersJoined
+      })
+      
       if (bothPlayersJoined) {
         console.log("👥 Both players joined, starting game!")
         startGame(data.duelId)
+      } else {
+        console.log("⏳ Waiting for other player to join...")
       }
     })
 
@@ -399,19 +424,28 @@ app.prepare().then(() => {
   }
 
   function startGame(duelId) {
+    console.log("🚀 Starting game for duelId:", duelId)
+    
     const session = activeSessions.get(duelId)
     if (!session) {
-      console.log("❌ Cannot start game: session not found")
+      console.log("❌ Cannot start game: session not found for", duelId)
       return
     }
 
-    console.log("🚀 Starting game:", duelId)
+    console.log("� Session found, checking sockets...")
+    console.log("👤 Player1 socketId:", session.player1.socketId)
+    console.log("👤 Player2 socketId:", session.player2.socketId)
     
     const player1Socket = io.sockets.sockets.get(session.player1.socketId)
     const player2Socket = io.sockets.sockets.get(session.player2.socketId)
 
+    console.log("🔍 Socket verification:")
+    console.log("👤 Player1 socket exists:", !!player1Socket, "connected:", player1Socket?.connected)
+    console.log("👤 Player2 socket exists:", !!player2Socket, "connected:", player2Socket?.connected)
+
     if (!player1Socket || !player2Socket) {
       console.log("❌ Cannot start game: not all players connected")
+      console.log("❌ Missing sockets - P1:", !player1Socket, "P2:", !player2Socket)
       return
     }
 
@@ -422,9 +456,16 @@ app.prepare().then(() => {
       subject: session.subject,
     }
 
-    console.log("📤 Sending game-start to both players")
+    console.log("📤 Sending game-start to both players with data:", {
+      questionsCount: gameStartData.quizData?.length,
+      subject: gameStartData.subject,
+      firstQuestion: gameStartData.currentQuestion?.question?.substring(0, 50) + "..."
+    })
+    
     player1Socket.emit("game-start", gameStartData)
     player2Socket.emit("game-start", gameStartData)
+    
+    console.log("✅ Game-start events sent to both players!")
   }
 
   httpServer.listen(port, hostname, (err) => {
