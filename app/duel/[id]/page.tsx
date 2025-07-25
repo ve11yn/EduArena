@@ -125,7 +125,7 @@ export default function DuelPage({ params }: DuelPageProps) {
     const socket = socketClient.getSocket()
     if (!socket) return
 
-    socket.emit("join-game", params.id)
+    socketClient.emit("join-game", params.id)
 
     socket.on("game-start", (data) => {
       console.log("🚀 Socket game started:", data)

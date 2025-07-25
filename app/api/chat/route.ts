@@ -1,10 +1,10 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextRequest, NextResponse } from "next/server";
 
-const apiKey = process.env.GOOGLE_AI_API_KEY;
+const apiKey = process.env.GEMINI_API_KEY;
 
 if (!apiKey) {
-  throw new Error("GOOGLE_AI_API_KEY is not defined in the .env.local file");
+  throw new Error("GEMINI_API_KEY is not defined in the .env.local file");
 }
 
 const genAI = new GoogleGenerativeAI(apiKey);

@@ -1,8 +1,12 @@
 import { createServer } from "http"
 import { Server } from "socket.io"
+import { config } from "dotenv"
 import { generateGeminiQuizQuestions } from "../lib/gemini-service"
 import { createDuel, updateDuel, getUserById, updateUsersElo, getUserEloForSubject } from "../lib/firebase/firestore"
 import { calculateEloRating } from "../lib/elo"
+
+// Load environment variables from .env.local
+config({ path: '.env.local' })
 
 interface Player {
   id: string

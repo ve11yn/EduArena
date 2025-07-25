@@ -41,10 +41,17 @@ class SocketClient {
       return this.socket
     }
 
-    this.socket = io(process.env.NODE_ENV === "production" ? "" : "http://localhost:3000", {
+    // Clean up existing socket if it exists but isn't connected
+    if (this.socket && !this.socket.connected) {
+      this.socket.removeAllListeners()
+      this.socket = null
+    }
+
+    this.socket = io(process.env.NODE_ENV === "production" ? "" : "http://localhost:3001", {
       transports: ["websocket", "polling"],
       timeout: 20000,
       forceNew: true,
+      autoConnect: true,
     })
 
     this.socket.on("connect", () => {
@@ -54,6 +61,10 @@ class SocketClient {
 
     this.socket.on("disconnect", (reason) => {
       console.log("🔌 Socket disconnected:", reason)
+      // Don't auto-reconnect on manual disconnect
+      if (reason !== "io client disconnect") {
+        this.handleReconnect()
+      }
     })
 
     this.socket.on("connect_error", (error) => {
@@ -89,7 +100,21 @@ class SocketClient {
     if (this.socket?.connected) {
       this.socket.emit(event, ...args)
     } else {
-      console.warn("🔌 Socket not connected, cannot emit:", event)
+      // Only log warning for important events, not routine cleanup events
+      if (event !== 'leave-queue' && event !== 'disconnect') {
+        console.warn("🔌 Socket not connected, cannot emit:", event)
+      }
+      
+      // Try to reconnect for important events
+      if (event !== 'leave-queue' && event !== 'disconnect') {
+        this.connect()
+        // Retry emission after connection attempt
+        setTimeout(() => {
+          if (this.socket?.connected) {
+            this.socket.emit(event, ...args)
+          }
+        }, 1000)
+      }
     }
   }
 
@@ -103,6 +128,19 @@ class SocketClient {
     if (this.socket) {
       this.socket.off(event as string, callback)
     }
+  }
+
+  // Safe method to leave queue without connection warnings
+  safeLeaveQueue() {
+    if (this.socket?.connected) {
+      this.socket.emit('leave-queue')
+    }
+    // Don't log warning if not connected - this is expected during navigation/cleanup
+  }
+
+  // Check if socket is connected
+  isConnected(): boolean {
+    return this.socket?.connected || false
   }
 }
 

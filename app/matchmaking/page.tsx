@@ -69,12 +69,12 @@ export default function MatchmakingPage() {
       socket.off("error")
 
       // Leave queue when component unmounts
-      socketClient.emit("leave-queue")
+      socketClient.safeLeaveQueue()
     }
   }, [user, userProfile, router])
 
   const handleCancel = () => {
-    socketClient.emit("leave-queue")
+    socketClient.safeLeaveQueue()
     socketClient.disconnect()
     router.push("/play")
   }

@@ -5,7 +5,10 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev",
-    "start": "next start"
+    "start": "next start",
+    "socket": "tsx server/socket-server.ts",
+    "dev:all": "concurrently \"npm run dev\" \"npm run socket\"",
+    "dev:socket": "tsx server/socket-server.ts"
   },
   "dependencies": {
     "@emotion/is-prop-valid": "latest",
@@ -45,6 +48,7 @@
     "clsx": "^2.1.1",
     "cmdk": "1.0.4",
     "date-fns": "4.1.0",
+    "dotenv": "^17.2.1",
     "embla-carousel-react": "8.5.1",
     "firebase": "^10.7.1",
     "firebase-admin": "^12.0.0",
