@@ -289,65 +289,21 @@ app.prepare().then(() => {
     }
   }
 
-  // Add function to create AI training session for fallback
-  async function createAITrainingSession(duelId, player, aiOpponent, subject) {
-    try {
-      console.log("🤖 Creating AI training session for:", duelId)
-      
-      // Use the same static questions as regular sessions
-      const staticQuestions = [
-        {
-          question: "What is 15 + 27?",
-          options: ["42", "41", "43", "40"],
-          correct_answer: 0,
-          explanation: "15 + 27 = 42"
-        },
-        {
-          question: "What is 8 × 6?",
-          options: ["46", "48", "50", "44"],
-          correct_answer: 1,
-          explanation: "8 × 6 = 48"
-        },
-        {
-          question: "What is 100 ÷ 4?",
-          options: ["20", "25", "30", "24"],
-          correct_answer: 1,
-          explanation: "100 ÷ 4 = 25"
-        },
-        {
-          question: "What is 12²?",
-          options: ["144", "124", "164", "134"],
-          correct_answer: 0,
-          explanation: "12 × 12 = 144"
-        },
-        {
-          question: "What is √64?",
-          options: ["6", "8", "10", "12"],
-          correct_answer: 1,
-          explanation: "√64 = 8"
-        }
-      ]
-
-      const session = {
-        id: duelId,
-        player1: player,
-        player2: aiOpponent,
-        subject: subject,
-        questions: staticQuestions,
-        currentQuestionIndex: 0,
-        scores: { player1: 0, player2: 0 },
-        answers: { player1: [], player2: [] },
-        startTime: Date.now(),
-        isTraining: true
-      }
-
-      console.log("✅ AI training session created successfully")
-      return session
-      
-    } catch (error) {
-      console.error("❌ Error creating AI training session:", error)
-      throw error
+  // Function to create AI training session for fallback
+  function createAITrainingSession(duelId, userId) {
+    const session = {
+      duelId,
+      player1: { id: userId, socketId: null, username: `User_${userId.slice(0, 8)}` },
+      player2: { id: "bot_intermediate", socketId: null, username: "TRAINING_BOT" },
+      subject: "math", // Default subject for fallback
+      quizData: getStaticQuizQuestions("math", 5),
+      currentQuestionIndex: 0,
+      player1Score: 0,
+      player2Score: 0,
+      status: "waiting"
     }
+    activeSessions.set(duelId, session)
+    return session
   }
 
   function startGame(duelId) {
@@ -383,5 +339,7 @@ app.prepare().then(() => {
     if (err) throw err
     console.log(`🚀 Next.js app ready on http://${hostname}:${port}`)
     console.log(`🎮 Socket.io server running on the same port`)
+    console.log(`🔧 Server Version: custom-server-fixed.js v2.1 (Latest - with fallback sessions)`)
+    console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`)
   })
 })
