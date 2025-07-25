@@ -82,7 +82,10 @@ export default function DuelPage({ params }: DuelPageProps) {
       return false
     }
 
-    socketClient.emit("join-game", params.id)
+    socketClient.emit("join-game", { 
+      duelId: params.id, 
+      userId: userProfile!.id 
+    })
     
     socket.on("game-start", (data) => {
       console.log("🚀 Socket game started:", data)
