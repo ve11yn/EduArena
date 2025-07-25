@@ -1,7 +1,10 @@
 // Integrated Socket Game Server for Next.js custom server
-const { generateGeminiQuizQuestions } = require("../lib/gemini-service")
-const { createDuel, updateDuel, getUserById, updateUsersElo, getUserEloForSubject } = require("../lib/firebase/firestore")
-const { calculateEloRating } = require("../lib/elo")
+const path = require('path')
+
+// Import modules with absolute paths from project root
+const { generateGeminiQuizQuestions } = require(path.join(process.cwd(), 'lib', 'gemini-service'))
+const { createDuel, updateDuel, getUserById, updateUsersElo, getUserEloForSubject } = require(path.join(process.cwd(), 'lib', 'firebase', 'firestore'))
+const { calculateEloRating } = require(path.join(process.cwd(), 'lib', 'elo'))
 
 class SocketGameServer {
   constructor(io) {
