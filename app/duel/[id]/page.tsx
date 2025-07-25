@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
-import { getDuelWithUsers, subscribeToDuel, getUserEloForSubject, createDuel } from "@/lib/firebase/firestore"
+import { getDuelWithUsers, subscribeToDuel, getUserEloForSubject } from "@/lib/firebase/firestore"
 import { submitAnswer } from "@/lib/duel-service"
 import { Clock, User, Trophy, Zap, Bot } from "lucide-react"
 import type { DuelWithUsers, QuizQuestion } from "@/lib/firebase/firestore"
@@ -35,208 +35,62 @@ export default function DuelPage({ params }: DuelPageProps) {
   // Add socket state variables after existing state
   const [isSocketGame, setIsSocketGame] = useState(false)
   const [socketConnected, setSocketConnected] = useState(false)
+  const [initialized, setInitialized] = useState(false)
 
   const { user, userProfile, refreshUserProfile } = useAuth()
   const router = useRouter()
 
-  const fallbackToFirebase = useCallback(async () => {
-    console.log("🔥 Falling back to Firebase mode")
-    
+  const fetchDuel = useCallback(async () => {
+    console.log("🔍 Fetching duel data for ID:", params.id)
     try {
-      // First try to fetch existing duel
       const duelData = await getDuelWithUsers(params.id)
+      console.log("📦 Retrieved duel data:", duelData)
       
-      if (duelData) {
-        console.log("✅ Found existing Firebase duel")
-        setDuel(duelData)
-        setLoading(false)
-
-        // Subscribe to real-time updates for Firebase games
-        const unsubscribe = subscribeToDuel(params.id, (updatedDuel) => {
-          if (updatedDuel) {
-            setDuel((prev) => {
-              if (!prev) return null
-
-              // Check if question index changed (next question)
-              if (prev.currentQuestionIndex !== updatedDuel.currentQuestionIndex) {
-                setShowNextQuestion(true)
-                resetForNextQuestion()
-
-                // Hide next question indicator after 2 seconds
-                setTimeout(() => setShowNextQuestion(false), 2000)
-              }
-
-              // Check if bot answered (for training mode)
-              if (
-                updatedDuel.isTraining &&
-                updatedDuel.player2Answers &&
-                updatedDuel.player2Answers[updatedDuel.currentQuestionIndex] !== undefined &&
-                waitingForBot
-              ) {
-                setWaitingForBot(false)
-              }
-
-              return {
-                ...updatedDuel,
-                player1: prev.player1,
-                player2: prev.player2,
-              }
-            })
-
-            // Start timer when both players are present and quiz is ready
-            if (updatedDuel.status === "in_progress" && updatedDuel.quizData && !startTime) {
-              setStartTime(Date.now())
-            }
-          }
-        })
-
-        return () => unsubscribe()
-      } else {
-        // If no Firebase duel exists, create a training duel with AI opponent
-        console.log("⚠️ No Firebase duel found, creating AI training duel as fallback")
-        
-        // Use the default subject from user profile or 'math'
-        const subject = userProfile?.preferredSubject || 'math'
-        
-        // Generate quiz questions for the training duel
-        const { generateQuizQuestions } = await import('@/lib/quiz-generator')
-        const quizData = await generateQuizQuestions(subject, "intermediate", 5)
-        
-        // Create a training duel with AI opponent
-        const trainingDuelData = {
-          player1Id: userProfile!.id,
-          player2Id: "bot_intermediate", // AI opponent
-          subject: subject,
-          currentQuestionIndex: 0,
-          player1Answers: [],
-          player2Answers: [],
-          player1Time: [],
-          player2Time: [],
-          player1Score: 0,
-          player2Score: 0,
-          status: "in_progress" as const,
-          isTraining: true,
-          maxQuestions: 5,
-          quizData: quizData, // Include the generated questions
-          startedAt: new Date(),
-        }
-
-        const duelId = await createDuel(trainingDuelData)
-        console.log("✅ Created fallback training duel:", duelId)
-        
-        // Redirect to the new training duel
-        router.replace(`/duel/${duelId}`)
+      if (!duelData) {
+        console.error("❌ No duel data found, redirecting to dashboard")
+        setError("Duel not found")
+        setTimeout(() => router.push("/dashboard"), 2000)
         return
       }
+
+      setDuel(duelData)
+      console.log("✅ Duel state updated")
+
+      // Start timer when both players are present and quiz is ready
+      if (duelData.status === "in_progress" && duelData.quizData && !startTime) {
+        console.log("⏰ Starting timer for in-progress duel")
+        setStartTime(Date.now())
+      }
+      
+      setLoading(false)
+      console.log("🎯 Loading set to false")
     } catch (error) {
-      console.error("Error in Firebase fallback:", error)
-      setError("Failed to load game. Redirecting to dashboard...")
+      console.error("❌ Error fetching duel:", error)
+      setError("Failed to load duel")
+      setLoading(false)
       setTimeout(() => router.push("/dashboard"), 3000)
     }
-  }, [params.id, startTime, waitingForBot, userProfile, router])
-
-  useEffect(() => {
-    if (!user || !userProfile) {
-      router.push("/login")
-      return
-    }
-
-    // Try to use socket-based game first
-    const socket = socketClient.getSocket()
-    
-    console.log("🎮 Duel page loaded, checking for socket connection...")
-    console.log("🔌 Socket state:", { 
-      exists: !!socket, 
-      connected: socket?.connected,
-      id: socket?.id 
-    })
-
-    // Set up socket listeners and attempt socket-based game
-    if (socket) {
-      setIsSocketGame(true)
-      
-      // Set up listeners first
-      setupSocketListeners()
-      
-      if (socket.connected) {
-        console.log("✅ Socket already connected, joining game immediately")
-        console.log("🎯 Attempting to join duel ID:", params.id)
-        console.log("👤 User ID:", userProfile.id)
-        setSocketConnected(true)
-        // Join game immediately if already connected
-        socketClient.emit("join-game", { duelId: params.id, userId: userProfile.id })
-      } else {
-        console.log("⏳ Socket not connected yet, waiting for connection...")
-        // Wait for connection
-        socket.on("connect", () => {
-          console.log("✅ Socket connected, joining game")
-          console.log("🎯 Attempting to join duel ID:", params.id)
-          console.log("👤 User ID:", userProfile.id)
-          setSocketConnected(true)
-          socketClient.emit("join-game", { duelId: params.id, userId: userProfile.id })
-        })
-      }
-      
-      // Set a timeout to fallback to Firebase if socket doesn't work
-      const socketTimeout = setTimeout(() => {
-        console.log("⚠️ Socket timeout (30s), checking if game started...")
-        // Only fallback if we haven't received game-start yet
-        if (!duel) {
-          console.log("⚠️ No duel data received after 30s, falling back to Firebase...")
-          setIsSocketGame(false)
-          fallbackToFirebase()
-        }
-      }, 30000) // Increased timeout to 30 seconds for AI quiz generation
-      
-      return () => {
-        clearTimeout(socketTimeout)
-      }
-    } else {
-      console.log("❌ No socket available, using Firebase...")
-      fallbackToFirebase()
-    }
-  }, [user, userProfile, router, params.id, socketConnected, fallbackToFirebase])
+  }, [params.id, router, startTime])
 
   // Add socket listeners function
-  const setupSocketListeners = () => {
+  const setupSocketListeners = useCallback(() => {
+    console.log("🔌 Setting up socket listeners")
     const socket = socketClient.getSocket()
     if (!socket) {
-      console.error("❌ No socket available for setting up listeners")
-      return
+      console.log("❌ No socket available, falling back to Firebase")
+      setIsSocketGame(false)
+      return false
     }
 
-    console.log("🎧 Setting up socket listeners for duel page")
-    console.log("🔌 Socket connected?", socket.connected)
-    console.log("🔌 Socket ID:", socket.id)
-
-    // Remove any existing listeners first to avoid duplicates
-    socket.off("quiz-generation-started")
-    socket.off("game-start")
-    socket.off("opponent-answered")
-    socket.off("question-result")
-    socket.off("next-question")
-    socket.off("game-end")
-    socket.off("error")
-    socket.off("test-response")
-
-    socket.on("test-response", (data) => {
-      console.log("🧪 Test response received:", data)
-    })
-
-    socket.on("quiz-generation-started", (data) => {
-      console.log("📝 Quiz generation started:", data)
-      // This will trigger a re-render with better loading message
-    })
-
+    socketClient.emit("join-game", params.id)
+    
     socket.on("game-start", (data) => {
       console.log("🚀 Socket game started:", data)
-      console.log("📝 Quiz data received:", data.quizData?.length, "questions")
-      
-      const newDuelState = {
+      setDuel({
         id: params.id,
         player1Id: userProfile!.id,
         player2Id: "opponent",
-        subject: data.subject || "math", // Use subject from server data
+        subject: data.subject || "math" as any,
         quizData: data.quizData,
         currentQuestionIndex: data.questionIndex || 0,
         player1Answers: [],
@@ -249,25 +103,20 @@ export default function DuelPage({ params }: DuelPageProps) {
         isTraining: false,
         maxQuestions: 5,
         createdAt: new Date(),
-      } as any
-      
-      console.log("🎮 Setting duel state:", newDuelState)
-      setDuel(newDuelState)
+      } as any)
       setStartTime(Date.now())
       setLoading(false)
-      console.log("✅ Game state updated - loading set to false")
     })
 
     socket.on("opponent-answered", () => {
       console.log("👥 Opponent answered")
-      // Visual indicator that opponent has answered
     })
 
     socket.on("question-result", (data) => {
       console.log("📊 Question result:", data)
       setQuestionFeedback({
         correct: data.correct,
-        correctAnswer: -1, // Will be filled from explanation
+        correctAnswer: -1,
         userAnswer: selectedAnswer || -1,
         explanation: data.explanation,
         questionIndex: duel?.currentQuestionIndex || 0,
@@ -276,7 +125,6 @@ export default function DuelPage({ params }: DuelPageProps) {
       })
       setShowFeedback(true)
 
-      // Update scores
       if (duel) {
         setDuel((prev) =>
           prev
@@ -289,7 +137,6 @@ export default function DuelPage({ params }: DuelPageProps) {
         )
       }
 
-      // Hide feedback after 3 seconds
       setTimeout(() => {
         setShowFeedback(false)
       }, 3000)
@@ -303,7 +150,7 @@ export default function DuelPage({ params }: DuelPageProps) {
             ? {
                 ...prev,
                 currentQuestionIndex: data.questionIndex,
-                quizData: prev.quizData, // Keep existing quiz data
+                quizData: prev.quizData,
               }
             : null,
         )
@@ -317,7 +164,7 @@ export default function DuelPage({ params }: DuelPageProps) {
         winnerId: data.winner,
         player1Score: data.finalScores.player,
         player2Score: data.finalScores.opponent,
-        player1Answers: [], // These would need to be tracked
+        player1Answers: [],
         player2Answers: [],
         totalQuestions: 5,
         eloChanges: data.eloChanges,
@@ -325,7 +172,6 @@ export default function DuelPage({ params }: DuelPageProps) {
       }
       setResult(gameResult)
 
-      // Refresh user profile for updated ELO
       if (refreshUserProfile) {
         refreshUserProfile()
       }
@@ -334,28 +180,125 @@ export default function DuelPage({ params }: DuelPageProps) {
     socket.on("error", (error) => {
       console.error("🔌 Socket error:", error)
       setError(error)
-      // If socket error occurs, fallback to Firebase
+      setLoading(false)
+    })
+
+    // Set timeout for socket connection
+    const socketTimeout = setTimeout(() => {
+      console.log("⏰ Socket connection timeout, falling back to Firebase")
       setIsSocketGame(false)
-      fallbackToFirebase()
+      setSocketConnected(false)
+    }, 5000)
+
+    socket.on("connect", () => {
+      console.log("✅ Socket connected")
+      clearTimeout(socketTimeout)
+      setSocketConnected(true)
     })
 
-    // Add a general listener to see what events are being received
-    socket.onAny((eventName, ...args) => {
-      console.log("📡 Socket event received:", eventName, args)
-    })
+    return true
+  }, [params.id, userProfile, duel, selectedAnswer, refreshUserProfile])
 
-    // Test that listeners are working
-    console.log("🧪 Testing socket listeners setup...")
-    
-    // Test basic emission (bypassing TypeScript interface)
-    if (socket.connected) {
-      console.log("🧪 Emitting test-connection event...")
-      socket.emit("test-connection", { message: "Testing from duel page" })
-      
-      console.log("🧪 Emitting join-game event...")
-      socket.emit("join-game", { duelId: params.id, userId: userProfile!.id })
+  useEffect(() => {
+    console.log("🔄 Main useEffect triggered")
+    console.log("User:", user?.uid)
+    console.log("UserProfile:", userProfile?.id)
+    console.log("Initialized:", initialized)
+
+    if (!user || !userProfile) {
+      console.log("❌ No user or profile, redirecting to login")
+      router.push("/login")
+      return
     }
-  }
+
+    if (initialized) {
+      console.log("⚠️ Already initialized, skipping")
+      return
+    }
+
+    setInitialized(true)
+    console.log("🎯 Initializing duel page")
+
+    // Try socket connection first
+    const socket = socketClient.getSocket()
+    if (socket) {
+      console.log("🔌 Socket available, attempting socket game")
+      const socketSetup = setupSocketListeners()
+      if (socketSetup) {
+        setIsSocketGame(true)
+        
+        // Set a timeout to fallback to Firebase if socket doesn't respond
+        const fallbackTimeout = setTimeout(() => {
+          if (!socketConnected) {
+            console.log("⏰ Socket timeout, falling back to Firebase")
+            setIsSocketGame(false)
+            fetchDuel()
+          }
+        }, 3000)
+
+        return () => {
+          clearTimeout(fallbackTimeout)
+          if (socket) {
+            socket.off("game-start")
+            socket.off("opponent-answered")
+            socket.off("question-result")
+            socket.off("next-question")
+            socket.off("game-end")
+            socket.off("error")
+            socket.off("connect")
+          }
+        }
+      }
+    }
+
+    // Fallback to Firebase
+    console.log("📱 Using Firebase-based game")
+    fetchDuel()
+
+    // Subscribe to real-time updates for Firebase games
+    const unsubscribe = subscribeToDuel(params.id, (updatedDuel) => {
+      console.log("🔄 Real-time duel update:", updatedDuel)
+      if (updatedDuel) {
+        setDuel((prev) => {
+          if (!prev) return null
+
+          // Check if question index changed (next question)
+          if (prev.currentQuestionIndex !== updatedDuel.currentQuestionIndex) {
+            setShowNextQuestion(true)
+            resetForNextQuestion()
+            setTimeout(() => setShowNextQuestion(false), 2000)
+          }
+
+          // Check if bot answered (for training mode)
+          if (
+            updatedDuel.isTraining &&
+            updatedDuel.player2Answers &&
+            updatedDuel.player2Answers[updatedDuel.currentQuestionIndex] !== undefined &&
+            waitingForBot
+          ) {
+            setWaitingForBot(false)
+          }
+
+          return {
+            ...updatedDuel,
+            player1: prev.player1,
+            player2: prev.player2,
+          }
+        })
+
+        // Start timer when both players are present and quiz is ready
+        if (updatedDuel.status === "in_progress" && updatedDuel.quizData && !startTime) {
+          console.log("⏰ Starting timer from real-time update")
+          setStartTime(Date.now())
+        }
+      }
+    })
+
+    return () => {
+      console.log("🧹 Cleaning up subscriptions")
+      unsubscribe()
+    }
+  }, [user, userProfile, initialized, router, params.id, setupSocketListeners, fetchDuel, startTime, waitingForBot, socketConnected])
 
   // Add beforeunload event to refresh profile when navigating away
   useEffect(() => {
@@ -439,15 +382,12 @@ export default function DuelPage({ params }: DuelPageProps) {
               if (result.waitingForBot) {
                 setWaitingForBot(true)
               } else if (result.nextQuestion) {
-                // Next question will be handled by real-time listener
                 console.log("Moving to next question...")
               } else if (result.completed && result.result) {
                 console.log("🎮 Game completed, refreshing user profile for updated lives...")
                 setResult(result.result)
-                // Refresh user profile to get updated lives after training mode
                 if (refreshUserProfile) {
                   refreshUserProfile()
-                  // Also trigger a small delay and another refresh to ensure Firestore updates propagate
                   setTimeout(() => {
                     console.log("🔄 Secondary profile refresh after game completion...")
                     refreshUserProfile()
@@ -460,15 +400,12 @@ export default function DuelPage({ params }: DuelPageProps) {
             if (result.waitingForBot) {
               setWaitingForBot(true)
             } else if (result.nextQuestion) {
-              // Next question will be handled by real-time listener
               console.log("Moving to next question...")
             } else if (result.completed && result.result) {
               console.log("🎮 Game completed, refreshing user profile for updated lives...")
               setResult(result.result)
-              // Refresh user profile to get updated lives after training mode
               if (refreshUserProfile) {
                 refreshUserProfile()
-                // Also trigger a small delay and another refresh to ensure Firestore updates propagate
                 setTimeout(() => {
                   console.log("🔄 Secondary profile refresh after game completion...")
                   refreshUserProfile()
@@ -527,10 +464,8 @@ export default function DuelPage({ params }: DuelPageProps) {
               } else if (result.completed && result.result) {
                 console.log("🎮 Timeout game completed, refreshing user profile for updated lives...")
                 setResult(result.result)
-                // Refresh user profile after training mode
                 if (refreshUserProfile) {
                   refreshUserProfile()
-                  // Also trigger a small delay and another refresh to ensure Firestore updates propagate
                   setTimeout(() => {
                     console.log("🔄 Secondary profile refresh after timeout game completion...")
                     refreshUserProfile()
@@ -546,7 +481,6 @@ export default function DuelPage({ params }: DuelPageProps) {
             } else if (result.completed && result.result) {
               console.log("🎮 Timeout game completed, refreshing user profile for updated lives...")
               setResult(result.result)
-              // Refresh user profile after training mode
               if (refreshUserProfile) {
                 refreshUserProfile()
               }
@@ -600,7 +534,10 @@ export default function DuelPage({ params }: DuelPageProps) {
           transition={{ duration: 1, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
           className="w-12 h-12 border-4 border-cyan-400 border-t-transparent rounded-full"
         />
-        <span className="ml-4 font-pixel text-cyan-400 text-lg">LOADING BATTLE...</span>
+        <span className="ml-4 font-pixel text-cyan-400 text-lg">
+          LOADING BATTLE...
+          {isSocketGame && <span className="block text-sm">Connecting via Socket</span>}
+        </span>
       </div>
     )
   }
@@ -625,33 +562,14 @@ export default function DuelPage({ params }: DuelPageProps) {
   if (!duel || !userProfile) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center bg-slate-800/80 border-2 border-cyan-400 p-8 max-w-md">
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 2, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
-            className="w-16 h-16 border-4 border-cyan-400 border-t-transparent rounded-full mx-auto mb-6"
-          />
-          {isSocketGame ? (
-            <>
-              <h1 className="font-pixel text-xl text-cyan-400 mb-4">PREPARING BATTLE</h1>
-              <p className="font-terminal text-cyan-300 mb-4">
-                Generating AI questions...
-              </p>
-              <p className="font-terminal text-xs text-slate-400">
-                This may take up to 30 seconds
-              </p>
-            </>
-          ) : (
-            <>
-              <h1 className="font-pixel text-2xl text-red-400 mb-4">BATTLE NOT FOUND</h1>
-              <button
-                onClick={() => router.push("/dashboard")}
-                className="retro-button font-pixel text-slate-900 px-6 py-3"
-              >
-                RETURN TO BASE
-              </button>
-            </>
-          )}
+        <div className="text-center">
+          <h1 className="font-pixel text-2xl text-red-400 mb-4">BATTLE NOT FOUND</h1>
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="retro-button font-pixel text-slate-900 px-6 py-3"
+          >
+            RETURN TO BASE
+          </button>
         </div>
       </div>
     )
@@ -743,61 +661,9 @@ export default function DuelPage({ params }: DuelPageProps) {
               <div className="font-terminal text-xs text-slate-400 mt-2">OUT OF {result.totalQuestions} QUESTIONS</div>
             </div>
 
-            {/* Question Results */}
-            <div className="bg-slate-900/50 border border-cyan-400/50 p-4 mb-6">
-              <h4 className="font-pixel text-sm text-yellow-400 mb-3">QUESTION RESULTS</h4>
-              <div className="grid grid-cols-1 gap-2">
-                {result.player1Answers.map((correct: boolean, index: number) => (
-                  <div key={index} className="flex justify-between items-center p-2 bg-slate-800/50 rounded">
-                    <span className="font-terminal text-sm text-cyan-300">Question {index + 1}</span>
-                    <div className="flex gap-4">
-                      <span className={`font-terminal text-sm ${correct ? "text-green-400" : "text-red-400"}`}>
-                        {duel.player1.username}: {correct ? "✅" : "❌"}
-                      </span>
-                      <span
-                        className={`font-terminal text-sm ${result.player2Answers[index] ? "text-green-400" : "text-red-400"}`}
-                      >
-                        {duel.player2?.username}: {result.player2Answers[index] ? "✅" : "❌"}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* ELO Changes */}
-            {!isTrainingMode && result.eloChanges && (
-              <div className="bg-slate-900/50 border border-cyan-400/50 p-4 mb-6">
-                <h4 className="font-pixel text-sm text-yellow-400 mb-3">ELO CHANGES</h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="text-center">
-                    <div className="font-terminal text-sm text-cyan-300 mb-1">{duel.player1.username}</div>
-                    <div className="font-pixel text-lg text-cyan-400">{result.eloChanges.player.newElo}</div>
-                    <div
-                      className={`font-terminal text-sm ${result.eloChanges.player.change >= 0 ? "text-green-400" : "text-red-400"}`}
-                    >
-                      {result.eloChanges.player.change >= 0 ? "+" : ""}
-                      {result.eloChanges.player.change}
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <div className="font-terminal text-sm text-cyan-300 mb-1">{duel.player2?.username}</div>
-                    <div className="font-pixel text-lg text-pink-400">{result.eloChanges.opponent.newElo}</div>
-                    <div
-                      className={`font-terminal text-sm ${result.eloChanges.opponent.change >= 0 ? "text-green-400" : "text-red-400"}`}
-                    >
-                      {result.eloChanges.opponent.change >= 0 ? "+" : ""}
-                      {result.eloChanges.opponent.change}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
             <div className="flex gap-4 justify-center">
               <button
                 onClick={() => {
-                  // Refresh profile before navigation to ensure dashboard has latest data
                   if (refreshUserProfile) {
                     refreshUserProfile()
                   }
@@ -809,7 +675,6 @@ export default function DuelPage({ params }: DuelPageProps) {
               </button>
               <button
                 onClick={() => {
-                  // Refresh profile before navigation to ensure dashboard has latest data
                   if (refreshUserProfile) {
                     refreshUserProfile()
                   }
@@ -826,31 +691,25 @@ export default function DuelPage({ params }: DuelPageProps) {
     )
   }
 
-  // Next Question Indicator
-  // if (showNextQuestion) {
-  //   return (
-  //     <div className="min-h-screen flex items-center justify-center">
-  //       <motion.div
-  //         initial={{ opacity: 0, scale: 0.9 }}
-  //         animate={{ opacity: 1, scale: 1 }}
-  //         exit={{ opacity: 0, scale: 0.9 }}
-  //         className="text-center bg-slate-800/80 border-2 border-green-400 p-8 max-w-md"
-  //       >
-  //         <motion.div animate={{ x: [0, 10, 0] }} transition={{ duration: 0.5, repeat: Number.POSITIVE_INFINITY }}>
-  //           <ArrowRight className="w-16 h-16 text-green-400 mx-auto mb-4" />
-  //         </motion.div>
-  //         <h1 className="font-pixel text-xl text-green-400 mb-4">BOTH CORRECT!</h1>
-  //         <p className="font-terminal text-green-300 mb-4">Moving to next question...</p>
-  //         <div className="font-pixel text-sm text-cyan-400">
-  //           QUESTION {duel.currentQuestionIndex + 1} OF {duel.maxQuestions}
-  //         </div>
-  //       </motion.div>
-  //     </div>
-  //   )
-  // }
-
   // Main duel interface
   const currentQuestion = duel.quizData?.[duel.currentQuestionIndex] as QuizQuestion
+
+  if (!currentQuestion) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center bg-yellow-900/80 border-2 border-yellow-400 p-8 max-w-md">
+          <h1 className="font-pixel text-xl text-yellow-400 mb-4">NO QUESTION DATA</h1>
+          <p className="font-terminal text-yellow-300 mb-4">Question data is not available</p>
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="retro-button font-pixel text-slate-900 px-6 py-3"
+          >
+            RETURN TO DASHBOARD
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen p-4">
@@ -927,7 +786,7 @@ export default function DuelPage({ params }: DuelPageProps) {
 
         {/* Question */}
         <motion.div
-          key={`question-${duel.currentQuestionIndex}`} // Better key for re-animation
+          key={`question-${duel.currentQuestionIndex}`}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
@@ -948,7 +807,7 @@ export default function DuelPage({ params }: DuelPageProps) {
           <AnimatePresence mode="wait">
             {currentQuestion?.options.map((option, index) => (
               <motion.button
-                key={`q${duel.currentQuestionIndex}-opt${index}`} // Better key
+                key={`q${duel.currentQuestionIndex}-opt${index}`}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.3 + index * 0.1 }}
