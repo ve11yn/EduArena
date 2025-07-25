@@ -313,7 +313,15 @@ export default function DuelPage({ params }: DuelPageProps) {
 
     // Test that listeners are working
     console.log("🧪 Testing socket listeners setup...")
-    socket.emit("test-connection", { message: "Testing from duel page" })
+    
+    // Test basic emission (bypassing TypeScript interface)
+    if (socket.connected) {
+      console.log("🧪 Emitting test-connection event...")
+      socket.emit("test-connection", { message: "Testing from duel page" })
+      
+      console.log("🧪 Emitting join-game event...")
+      socket.emit("join-game", { duelId: params.id, userId: userProfile!.id })
+    }
   }
 
   // Add beforeunload event to refresh profile when navigating away

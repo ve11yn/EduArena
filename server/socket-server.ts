@@ -57,6 +57,14 @@ class SocketGameServer {
     this.io.on("connection", (socket) => {
       console.log("🔌 Player connected:", socket.id)
 
+      // Add catch-all event handler to see what events are being received
+      socket.onAny((eventName, ...args) => {
+        console.log("📡 Server received event:", eventName, "from", socket.id)
+        if (args.length > 0) {
+          console.log("📡 Event data:", args[0])
+        }
+      })
+
       socket.on("join-queue", async (data) => {
         await this.handleJoinQueue(socket, data)
       })
@@ -71,7 +79,8 @@ class SocketGameServer {
 
       socket.on("test-connection", (data) => {
         console.log("🧪 Test connection received:", data)
-        socket.emit("test-response", { message: "Server received test" })
+        console.log("🧪 Responding to socket:", socket.id)
+        socket.emit("test-response", { message: "Server received test", socketId: socket.id })
       })
 
       socket.on("player-answer", async (data) => {
