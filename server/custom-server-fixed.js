@@ -55,6 +55,11 @@ app.prepare().then(() => {
 
     socket.on("join-queue", async (data) => {
       console.log("🎯 Player joining queue:", data)
+      console.log("🔌 Socket details:", {
+        socketId: socket.id,
+        connected: socket.connected,
+        handshake: socket.handshake?.address
+      })
       
       const player = {
         id: `${socket.id}_${Date.now()}`,
@@ -76,12 +81,18 @@ app.prepare().then(() => {
       // Remove player if already in queue (reconnection case)
       const existingIndex = queue.findIndex((p) => p.userId === data.userId)
       if (existingIndex !== -1) {
-        queue.splice(existingIndex, 1)
+        const removedPlayer = queue.splice(existingIndex, 1)[0]
+        console.log(`♻️ Removed existing player from queue: ${removedPlayer.username}`)
       }
 
       // Add player to queue
       queue.push(player)
       console.log(`📊 Queue status for ${data.subject}: ${queue.length} players`)
+      console.log(`📋 Current queue:`, queue.map(p => ({
+        username: p.username,
+        socketId: p.socketId,
+        joinedAt: new Date(p.joinedAt).toISOString()
+      })))
 
       // Send queue status
       socket.emit("queue-status", {
@@ -95,22 +106,54 @@ app.prepare().then(() => {
         const player2 = queue.shift()
         
         console.log(`🎯 Match found! ${player1.username} vs ${player2.username}`)
+        console.log(`📋 Player1 details:`, {
+          username: player1.username,
+          socketId: player1.socketId,
+          userId: player1.userId,
+          joinedAt: new Date(player1.joinedAt).toISOString()
+        })
+        console.log(`📋 Player2 details:`, {
+          username: player2.username,
+          socketId: player2.socketId,
+          userId: player2.userId,
+          joinedAt: new Date(player2.joinedAt).toISOString()
+        })
         
         // Verify both players are still connected before creating session
         const player1Socket = io.sockets.sockets.get(player1.socketId)
         const player2Socket = io.sockets.sockets.get(player2.socketId)
         
-        if (!player1Socket) {
-          console.log("⚠️ Player1 disconnected, putting player2 back in queue")
+        console.log(`🔍 Socket verification:`)
+        console.log(`👤 Player1 socket exists: ${!!player1Socket}, connected: ${player1Socket?.connected}`)
+        console.log(`👤 Player2 socket exists: ${!!player2Socket}, connected: ${player2Socket?.connected}`)
+        
+        if (!player1Socket || !player1Socket.connected) {
+          console.log("⚠️ Player1 disconnected or socket invalid, putting player2 back in queue")
           queue.unshift(player2) // Put player2 back at front of queue
+          // Send updated queue status to player2
+          if (player2Socket && player2Socket.connected) {
+            player2Socket.emit("queue-status", {
+              position: 1,
+              playersInQueue: queue.length,
+            })
+          }
           return
         }
         
-        if (!player2Socket) {
-          console.log("⚠️ Player2 disconnected, putting player1 back in queue")
+        if (!player2Socket || !player2Socket.connected) {
+          console.log("⚠️ Player2 disconnected or socket invalid, putting player1 back in queue")
           queue.unshift(player1) // Put player1 back at front of queue
+          // Send updated queue status to player1
+          if (player1Socket && player1Socket.connected) {
+            player1Socket.emit("queue-status", {
+              position: 1,
+              playersInQueue: queue.length,
+            })
+          }
           return
         }
+        
+        console.log("✅ Both players verified connected, creating game session...")
         
         // Create game session
         await createGameSession(player1, player2, data.subject)
@@ -294,29 +337,35 @@ app.prepare().then(() => {
       const player2Socket = io.sockets.sockets.get(player2.socketId)
 
       console.log("📡 Notifying players of match:")
-      console.log("👤 Player1:", player1.username, "Socket exists:", !!player1Socket)
-      console.log("👤 Player2:", player2.username, "Socket exists:", !!player2Socket)
+      console.log("👤 Player1:", player1.username, "Socket exists:", !!player1Socket, "Connected:", player1Socket?.connected)
+      console.log("👤 Player2:", player2.username, "Socket exists:", !!player2Socket, "Connected:", player2Socket?.connected)
 
-      if (player1Socket) {
-        player1Socket.emit("match-found", {
-          duelId,
-          opponent: { username: player2.username, elo: player2.userElo },
-          isPlayer1: true,
-        })
-        console.log("✅ Match-found sent to player1:", player1.username)
-      } else {
-        console.error("❌ Player1 socket not found:", player1.socketId)
+      const matchData1 = {
+        duelId,
+        opponent: { username: player2.username, elo: player2.userElo },
+        isPlayer1: true,
+      }
+      
+      const matchData2 = {
+        duelId,
+        opponent: { username: player1.username, elo: player1.userElo },
+        isPlayer1: false,
       }
 
-      if (player2Socket) {
-        player2Socket.emit("match-found", {
-          duelId,
-          opponent: { username: player1.username, elo: player1.userElo },
-          isPlayer1: false,
-        })
+      if (player1Socket && player1Socket.connected) {
+        console.log("📤 Sending match-found to player1:", matchData1)
+        player1Socket.emit("match-found", matchData1)
+        console.log("✅ Match-found sent to player1:", player1.username)
+      } else {
+        console.error("❌ Player1 socket not found or disconnected:", player1.socketId)
+      }
+
+      if (player2Socket && player2Socket.connected) {
+        console.log("📤 Sending match-found to player2:", matchData2)
+        player2Socket.emit("match-found", matchData2)
         console.log("✅ Match-found sent to player2:", player2.username)
       } else {
-        console.error("❌ Player2 socket not found:", player2.socketId)
+        console.error("❌ Player2 socket not found or disconnected:", player2.socketId)
       }
 
       console.log("🎮 Game session created, waiting for players to join...")
