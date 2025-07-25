@@ -10,6 +10,7 @@ export interface User {
   elo: SubjectElo
   preferredSubject?: keyof SubjectElo
   placementTestCompleted: boolean
+  lives: number // Global lives count for training mode
   createdAt: Date
 }
 

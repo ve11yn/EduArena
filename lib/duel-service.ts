@@ -1,4 +1,4 @@
-import { getDuelById, updateDuel, getUserById, updateUsersElo, getUserEloForSubject } from "@/lib/firebase/firestore";
+import { getDuelById, updateDuel, getUserById, updateUsersElo, getUserEloForSubject, updateUserLives } from "@/lib/firebase/firestore";
 import { calculateEloRating } from "@/lib/elo";
 import { generateBotAnswer } from "@/lib/game-modes";
 import type { Duel } from "@/lib/firebase/firestore";
@@ -86,9 +86,21 @@ export const submitAnswer = async (
     );
     await updateDuel(duelId, cleanUpdateData);
 
-    // Generate bot response immediately
+    // Generate bot response immediately with difficulty-appropriate accuracy
     const currentQuestion = duel.quizData![duel.currentQuestionIndex];
-    const botAnswer = generateBotAnswer(currentQuestion.correct_answer, 0.75);
+    
+    // Determine bot accuracy based on difficulty
+    let botAccuracy = 0.75; // default
+    if (duel.difficulty === 'beginner') {
+      botAccuracy = 0.6; // Bot makes more mistakes for beginners
+    } else if (duel.difficulty === 'intermediate') {
+      botAccuracy = 0.75; // Moderate challenge
+    } else if (duel.difficulty === 'advanced') {
+      botAccuracy = 0.9; // Bot is very good for advanced players
+    }
+    
+    console.log(`🤖 Bot generating answer with ${(botAccuracy * 100)}% accuracy for ${duel.difficulty} difficulty`);
+    const botAnswer = generateBotAnswer(currentQuestion.correct_answer, botAccuracy);
     const botResponseTime = Math.random() * 2000 + 1000;
 
     const player2AnswersRaw = [...(duel.player2Answers || Array(duel.currentQuestionIndex + 1).fill(undefined))];
@@ -132,28 +144,67 @@ async function processQuestionResult(duel: Duel): Promise<SubmitAnswerResult> {
   const currentQuestion = duel.quizData![duel.currentQuestionIndex];
   const correctAnswer = currentQuestion.correct_answer;
 
+  console.log(`🎯 Processing question ${duel.currentQuestionIndex + 1}:`);
+  console.log(`   Question: ${currentQuestion.question.substring(0, 50)}...`);
+  console.log(`   Correct answer index: ${correctAnswer}`);
+  console.log(`   Correct option: "${currentQuestion.options[correctAnswer]}"`);
+
   // Use raw answers and compute correctness
   const player1Answer = Number.parseInt(duel.player1Answers![duel.currentQuestionIndex] || "0");
   const player2Answer = Number.parseInt(duel.player2Answers![duel.currentQuestionIndex] || "0");
 
+  console.log(`   Player 1 answered: ${player1Answer} ("${currentQuestion.options[player1Answer] || 'Invalid'}")`);
+  console.log(`   Player 2 answered: ${player2Answer} ("${currentQuestion.options[player2Answer] || 'Invalid'}")`);
+
   const player1Correct = player1Answer === correctAnswer;
   const player2Correct = player2Answer === correctAnswer;
+
+  console.log(`   Player 1 correct: ${player1Correct}`);
+  console.log(`   Player 2 correct: ${player2Correct}`);
 
   let newPlayer1Score = duel.player1Score || 0;
   let newPlayer2Score = duel.player2Score || 0;
 
-  if (player1Correct) newPlayer1Score++;
-  if (player2Correct) newPlayer2Score++;
+  // Update scores for correct answers
+  if (player1Correct) {
+    newPlayer1Score++;
+    console.log(`   ✅ Player 1 score increased to ${newPlayer1Score}`);
+  } else {
+    console.log(`   ❌ Player 1 answered incorrectly`);
+  }
+  
+  if (player2Correct) {
+    newPlayer2Score++;
+    console.log(`   ✅ Player 2 score increased to ${newPlayer2Score}`);
+  } else {
+    console.log(`   ❌ Player 2 answered incorrectly`);
+  }
 
-  const isLastQuestion = duel.currentQuestionIndex + 1 >= (duel.maxQuestions || 10); // Default to 10 if undefined
-  const shouldContinue = player1Correct && player2Correct && !isLastQuestion;
+  const isLastQuestion = duel.currentQuestionIndex + 1 >= (duel.maxQuestions || 15); // Default to 15 for training
+  console.log(`   Question ${duel.currentQuestionIndex + 1} of ${duel.maxQuestions || 15}`);
+  
+  // Different continuation logic for training vs PvP
+  let shouldContinue: boolean;
+  if (duel.isTraining) {
+    // In training mode, continue until the last question (no lives check here)
+    shouldContinue = !isLastQuestion;
+    console.log(`   Training mode: shouldContinue = ${shouldContinue} (isLastQuestion: ${isLastQuestion})`);
+  } else {
+    // In PvP mode, continue if it's not the last question
+    shouldContinue = !isLastQuestion;
+    console.log(`   PvP mode: shouldContinue = ${shouldContinue} (isLastQuestion: ${isLastQuestion})`);
+  }
 
   if (shouldContinue) {
-    await updateDuel(duel.id, {
+    console.log(`   ▶️ Moving to next question (${duel.currentQuestionIndex + 2})`);
+    
+    const updateData: any = {
       currentQuestionIndex: duel.currentQuestionIndex + 1,
       player1Score: newPlayer1Score,
       player2Score: newPlayer2Score,
-    });
+    };
+
+    await updateDuel(duel.id, updateData);
 
     return {
       success: true,
@@ -161,21 +212,58 @@ async function processQuestionResult(duel: Duel): Promise<SubmitAnswerResult> {
       nextQuestion: true,
     };
   } else {
+    console.log(`   🏁 Game ending...`);
+    
     let winnerId = undefined;
 
-    if (newPlayer1Score > newPlayer2Score) {
-      winnerId = duel.player1Id;
-    } else if (newPlayer2Score > newPlayer1Score) {
-      winnerId = duel.player2Id;
+    if (duel.isTraining) {
+      // In training mode:
+      // - Player wins if they complete all questions
+      // - Bot wins if bot has better score (player only loses a global life then)
+      // - This is determined at the end, not per question
+      if (newPlayer1Score >= newPlayer2Score) {
+        winnerId = duel.player1Id;
+        console.log(`   🎉 Player 1 wins training mode! Score: ${newPlayer1Score} vs Bot ${newPlayer2Score}`);
+      } else {
+        winnerId = duel.player2Id; // Bot wins
+        console.log(`   🤖 Bot wins training mode! Score: Bot ${newPlayer2Score} vs Player ${newPlayer1Score}`);
+        console.log(`   💔 Player will lose a global life for being defeated by the bot`);
+        
+        // Deduct a global life from the player for being defeated by the bot
+        try {
+          const player = await getUserById(duel.player1Id);
+          if (player && player.lives > 0) {
+            const newGlobalLives = Math.max(0, player.lives - 1);
+            await updateUserLives(duel.player1Id, newGlobalLives);
+            console.log(`   � Player's global lives updated: ${player.lives} → ${newGlobalLives}`);
+          }
+        } catch (error) {
+          console.error("   ❌ Error updating player's global lives:", error);
+        }
+      }
+    } else {
+      // In PvP mode, determine winner by score
+      if (newPlayer1Score > newPlayer2Score) {
+        winnerId = duel.player1Id;
+        console.log(`   🎉 Player 1 wins PvP! Score: ${newPlayer1Score} vs ${newPlayer2Score}`);
+      } else if (newPlayer2Score > newPlayer1Score) {
+        winnerId = duel.player2Id;
+        console.log(`   🎉 Player 2 wins PvP! Score: ${newPlayer2Score} vs ${newPlayer1Score}`);
+      } else {
+        console.log(`   🤝 PvP ends in a draw! Score: ${newPlayer1Score} vs ${newPlayer2Score}`);
+      }
     }
 
-    await updateDuel(duel.id, {
+    const updateData: any = {
       winnerId,
       player1Score: newPlayer1Score,
       player2Score: newPlayer2Score,
       status: "completed",
       completedAt: new Date(),
-    });
+    };
+
+    console.log(`   💾 Saving final game state...`);
+    await updateDuel(duel.id, updateData);
 
     const result = await calculateFinalResult(duel, newPlayer1Score, newPlayer2Score, winnerId);
 

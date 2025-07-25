@@ -114,16 +114,29 @@ export default function DuelPage({ params }: DuelPageProps) {
 
   // Update the handleSubmitAnswer function to better handle training mode:
   const handleSubmitAnswer = async () => {
-    if (submitted || !startTime || !userProfile) return
+    if (submitted || !startTime || !userProfile || selectedAnswer === null) return
+
+    // Log the answer submission for debugging
+    const currentQuestion = duel?.quizData?.[duel?.currentQuestionIndex ?? 0];
+    if (currentQuestion && duel) {
+      console.log(`🎯 FRONTEND: Submitting answer for question ${duel.currentQuestionIndex + 1}`);
+      console.log(`   Question: ${currentQuestion.question.substring(0, 50)}...`);
+      console.log(`   Selected answer index: ${selectedAnswer}`);
+      console.log(`   Selected option: "${currentQuestion.options[selectedAnswer] || 'Invalid'}"`);
+      console.log(`   Correct answer index: ${currentQuestion.correct_answer}`);
+      console.log(`   Correct option: "${currentQuestion.options[currentQuestion.correct_answer] || 'Invalid'}"`);
+      console.log(`   Is correct: ${selectedAnswer === currentQuestion.correct_answer}`);
+    }
 
     setSubmitted(true)
     setError("")
     const timeElapsed = Date.now() - startTime
 
     try {
-      const result = await submitAnswer(params.id, selectedAnswer?.toString() || "0", timeElapsed, userProfile.id)
+      const result = await submitAnswer(params.id, selectedAnswer.toString(), timeElapsed, userProfile.id)
 
       if (result.success) {
+        console.log(`✅ FRONTEND: Answer submitted successfully`);
         if (result.waitingForBot) {
           setWaitingForBot(true)
         } else if (result.nextQuestion) {
@@ -133,6 +146,7 @@ export default function DuelPage({ params }: DuelPageProps) {
           setResult(result.result)
         }
       } else {
+        console.error(`❌ FRONTEND: Answer submission failed:`, result.error);
         setError(result.error || "Failed to submit answer")
         setSubmitted(false)
       }

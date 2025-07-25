@@ -1,5 +1,4 @@
 import { createDuel, findWaitingDuel, updateDuel, getUserEloForSubject } from "@/lib/firebase/firestore"
-import { generateQuizQuestions } from "@/lib/quiz-generator"
 import { createBotOpponent } from "@/lib/game-modes"
 import type { GameConfig } from "@/lib/game-modes"
 import type { User } from "@/lib/firebase/firestore"
@@ -13,7 +12,42 @@ export interface GameStartResult {
   error?: string
 }
 
-export const startGame = async (config: GameConfig, currentUser: User): Promise<GameStartResult> => {
+// Client-side function to generate questions via API
+async function generateQuizQuestionsViaAPI(
+  subject: string, 
+  difficulty: string, 
+  count: number,
+  userToken: string
+) {
+  console.log('🤖 Calling AI question generation API:', { subject, difficulty, count })
+  
+  const response = await fetch('/api/generate-quiz', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${userToken}`
+    },
+    body: JSON.stringify({
+      subject,
+      difficulty,
+      count
+    })
+  });
+
+  console.log('📡 API Response status:', response.status)
+
+  if (!response.ok) {
+    const error = await response.json();
+    console.error('❌ API Error:', error)
+    throw new Error(error.error || 'Failed to generate questions');
+  }
+
+  const data = await response.json();
+  console.log('✅ API Success:', data.metadata || 'No metadata')
+  return data.data; // Return the questions array
+}
+
+export const startGame = async (config: GameConfig, currentUser: User, userToken: string): Promise<GameStartResult> => {
   try {
     const { mode, subject, difficulty } = config
 
@@ -26,7 +60,7 @@ export const startGame = async (config: GameConfig, currentUser: User): Promise<
       return { success: false, error: "Invalid mode. Must be 'pvp' or 'training'" }
     }
 
-    const maxQuestions = 5 // Number of questions per duel
+    const maxQuestions = mode === "training" ? 15 : 5 // 15 questions for training, 5 for PvP
 
     if (mode === "training") {
       // Training mode - create game with bot (requires difficulty)
@@ -35,7 +69,7 @@ export const startGame = async (config: GameConfig, currentUser: User): Promise<
       }
 
       const botOpponent = createBotOpponent(difficulty)
-      const quizQuestions = await generateQuizQuestions(subject, difficulty, maxQuestions)
+      const quizQuestions = await generateQuizQuestionsViaAPI(subject, difficulty, maxQuestions, userToken)
 
       const duelId = await createDuel({
         player1Id: currentUser.id,
@@ -70,7 +104,7 @@ export const startGame = async (config: GameConfig, currentUser: User): Promise<
 
       if (waitingDuel) {
         // Join existing duel
-        const quizQuestions = await generateQuizQuestions(subject, undefined, maxQuestions)
+        const quizQuestions = await generateQuizQuestionsViaAPI(subject, "intermediate", maxQuestions, userToken)
 
         await updateDuel(waitingDuel.id, {
           player2Id: currentUser.id,

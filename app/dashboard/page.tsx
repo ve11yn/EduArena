@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth-context"
 import { signOutUser } from "@/lib/firebase/auth"
 import { useLeaderboard, getEloColor, getRankTitle } from "@/hooks/use-leaderboard"
 import { getUserEloForSubject } from "@/lib/firebase/firestore"
-import { Trophy, TrendingUp, Users, LogOut, Gamepad2, Crown, Medal, Award, User } from "lucide-react"
+import { Trophy, TrendingUp, Users, LogOut, Gamepad2, Crown, Medal, Award, User, Heart } from "lucide-react"
 import Link from "next/link"
 
 export default function DashboardPage() {
@@ -114,7 +114,22 @@ export default function DashboardPage() {
               WELCOME {userProfile.username.toUpperCase()}
             </h1>
             <div className="w-full h-1 bg-gradient-to-r from-cyan-400 to-transparent mb-2"></div>
-            <p className="font-terminal text-cyan-300 text-lg">READY FOR BATTLE?</p>
+            <div className="flex items-center gap-4 mb-4">
+              <p className="font-terminal text-cyan-300 text-lg">READY FOR BATTLE?</p>
+              {/* Global Lives Display */}
+              <div className="flex items-center gap-2 px-3 py-1 bg-slate-700/50 rounded-lg border border-red-400/30">
+                <span className="font-pixel text-xs text-red-400">LIVES</span>
+                <div className="flex items-center gap-1">
+                  {[...Array(3)].map((_, i) => (
+                    <div 
+                      key={i} 
+                      className={`w-2 h-2 rounded-full ${i < (userProfile?.lives || 0) ? 'bg-red-400' : 'bg-slate-600'}`}
+                    />
+                  ))}
+                </div>
+                <span className="font-pixel text-xs text-cyan-400">{userProfile?.lives || 0}/3</span>
+              </div>
+            </div>
             <div className="mt-4">
               <div className="flex gap-4 relative z-10">
                 <Link href="/play">

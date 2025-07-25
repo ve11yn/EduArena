@@ -1,9 +1,16 @@
 export type GameMode = "pvp" | "training"
 
+export interface TrainingLevelData {
+  levelId: number
+  levelName: string
+  totalQuestions: number
+}
+
 export interface GameConfig {
   mode: GameMode
   subject: "math" | "bahasa" | "english"
   difficulty: "beginner" | "intermediate" | "advanced"
+  trainingLevel?: TrainingLevelData
 }
 
 export interface BotOpponent {

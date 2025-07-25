@@ -24,6 +24,7 @@ export interface User {
   elo: SubjectElo
   preferredSubject?: keyof SubjectElo
   placementTestCompleted: boolean
+  lives: number // Global lives count for training mode
   createdAt: Date
 }
 
@@ -94,6 +95,7 @@ export const getUserById = async (uid: string): Promise<User | null> => {
           english: botElos[difficulty],
         },
         placementTestCompleted: true,
+        lives: 3, // Bots have infinite lives (not used)
         createdAt: new Date(),
       }
     }
@@ -125,6 +127,7 @@ export const getUserById = async (uid: string): Promise<User | null> => {
         elo,
         preferredSubject: data.preferredSubject,
         placementTestCompleted: Boolean(data.placementTestCompleted),
+        lives: typeof data.lives === 'number' ? data.lives : 3, // Default to 3 lives
         createdAt,
       } as User
     }
@@ -163,6 +166,15 @@ export const updateUserElo = async (uid: string, subject: keyof SubjectElo, newE
       const updatedElo = { ...userData.elo, [subject]: newElo }
       await updateDoc(userRef, { elo: updatedElo })
     }
+  } catch (error) {
+    throw error
+  }
+}
+
+export const updateUserLives = async (uid: string, newLives: number) => {
+  try {
+    const userRef = doc(db, "users", uid)
+    await updateDoc(userRef, { lives: newLives })
   } catch (error) {
     throw error
   }
@@ -516,4 +528,18 @@ export const getUserEloForSubject = (userElo: SubjectElo, subject?: keyof Subjec
 // Helper function to get the highest ELO across all subjects
 export const getHighestElo = (userElo: SubjectElo): number => {
   return Math.max(userElo.math, userElo.bahasa, userElo.english)
+}
+
+export const regenerateUserLife = async (uid: string) => {
+  try {
+    const user = await getUserById(uid)
+    if (user && user.lives < 3) {
+      const newLives = Math.min(3, user.lives + 1)
+      await updateUserLives(uid, newLives)
+      return newLives
+    }
+    return user?.lives || 0
+  } catch (error) {
+    throw error
+  }
 }

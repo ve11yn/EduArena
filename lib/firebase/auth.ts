@@ -26,6 +26,7 @@ export interface UserProfile {
   elo: SubjectElo
   preferredSubject?: keyof SubjectElo
   placementTestCompleted: boolean
+  lives: number // Global lives count for training mode
   createdAt: Date
 }
 
@@ -45,6 +46,7 @@ export const createUser = async (email: string, password: string, username: stri
         english: 0
       },
       placementTestCompleted: false,
+      lives: 3, // Start with 3 lives
       createdAt: new Date(),
     }
 

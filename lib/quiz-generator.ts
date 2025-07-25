@@ -1,3 +1,5 @@
+import { generateGeminiQuizQuestions } from './gemini-service';
+
 export interface QuizQuestion {
   question: string
   options: string[]
@@ -13,6 +15,31 @@ export const generateQuizQuestions = async (
   // For PvP, use intermediate difficulty if no difficulty specified
   const actualDifficulty = difficulty || "intermediate"
 
+  // Try Gemini AI first, fallback to static if it fails
+  try {
+    console.log(`🤖 Attempting Gemini AI generation: ${count} questions for ${subject} (${actualDifficulty})`);
+    const aiQuestions = await generateGeminiQuizQuestions(subject, actualDifficulty, count);
+    console.log(`✅ GEMINI SUCCESS: Generated ${aiQuestions.length} questions`);
+    return aiQuestions;
+  } catch (error) {
+    console.warn('❌ Gemini AI generation failed:', error instanceof Error ? error.message : error);
+    
+    // Check if it's an API key error
+    if (error instanceof Error && error.message.includes('API key')) {
+      console.warn('� Gemini API key not configured - using static questions as fallback');
+    }
+    
+    // Fallback to static questions
+    console.log(`📚 Falling back to static questions: ${count} for ${subject} (${actualDifficulty})`);
+    return generateStaticQuestions(subject, actualDifficulty, count);
+  }
+}
+
+const generateStaticQuestions = (
+  subject: string,
+  difficulty: string,
+  count: number
+): QuizQuestion[] => {
   // Mock quiz questions for different subjects and difficulties
   const quizBank = {
     math: {
@@ -341,9 +368,9 @@ export const generateQuizQuestions = async (
     throw new Error(`Subject ${subject} not supported`)
   }
 
-  const difficultyQuestions = subjectQuestions[actualDifficulty as keyof typeof subjectQuestions]
+  const difficultyQuestions = subjectQuestions[difficulty as keyof typeof subjectQuestions]
   if (!difficultyQuestions) {
-    throw new Error(`Difficulty ${actualDifficulty} not supported for subject ${subject}`)
+    throw new Error(`Difficulty ${difficulty} not supported for subject ${subject}`)
   }
 
   // Return random questions from the available ones

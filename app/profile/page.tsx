@@ -329,7 +329,7 @@ export default function ProfilePage() {
             <Trophy className="w-6 h-6 text-cyan-400" />
             <h2 className="font-pixel text-xl text-cyan-400">OVERALL STATS</h2>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <div className="bg-slate-900/50 border border-slate-600 p-4 text-center">
               <div className={`font-pixel text-2xl ${getEloColor(getOverallElo())}`}>
                 {getOverallElo()}
@@ -357,6 +357,19 @@ export default function ProfilePage() {
               </div>
               <div className="font-terminal text-xs text-cyan-300 mt-1">PLACEMENT</div>
               <div className="font-terminal text-xs text-slate-400">TEST</div>
+            </div>
+            <div className="bg-slate-900/50 border border-slate-600 p-4 text-center">
+              <div className="flex items-center justify-center gap-1 mb-1">
+                {[...Array(3)].map((_, i) => (
+                  <div 
+                    key={i} 
+                    className={`w-2 h-2 rounded-full ${i < (userProfile.lives || 0) ? 'bg-red-400' : 'bg-slate-600'}`}
+                  />
+                ))}
+              </div>
+              <div className="font-pixel text-lg text-red-400">{userProfile.lives || 0}/3</div>
+              <div className="font-terminal text-xs text-cyan-300 mt-1">LIVES</div>
+              <div className="font-terminal text-xs text-slate-400">TRAINING</div>
             </div>
             <div className="bg-slate-900/50 border border-slate-600 p-4 text-center">
               <div className="font-pixel text-2xl text-orange-400">
