@@ -6,8 +6,11 @@ import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { getDuelWithUsers, subscribeToDuel, getUserEloForSubject } from "@/lib/firebase/firestore"
 import { submitAnswer } from "@/lib/duel-service"
-import { Clock, User, Trophy, Zap, Bot, ArrowRight } from "lucide-react"
+import { Clock, User, Trophy, Zap, Bot } from "lucide-react"
 import type { DuelWithUsers, QuizQuestion } from "@/lib/firebase/firestore"
+
+// Add socket imports at the top
+import { socketClient } from "@/lib/socket-client"
 
 interface DuelPageProps {
   params: {
@@ -28,6 +31,10 @@ export default function DuelPage({ params }: DuelPageProps) {
   const [showNextQuestion, setShowNextQuestion] = useState(false)
   const [questionFeedback, setQuestionFeedback] = useState<any>(null)
   const [showFeedback, setShowFeedback] = useState(false)
+
+  // Add socket state variables after existing state
+  const [isSocketGame, setIsSocketGame] = useState(false)
+  const [socketConnected, setSocketConnected] = useState(false)
 
   const { user, userProfile, refreshUserProfile } = useAuth()
   const router = useRouter()
@@ -60,63 +67,182 @@ export default function DuelPage({ params }: DuelPageProps) {
       return
     }
 
-    fetchDuel()
+    // Check if this is a socket-based game by trying to connect
+    const socket = socketClient.getSocket()
+    if (socket && socket.connected) {
+      setIsSocketGame(true)
+      setSocketConnected(true)
+      setupSocketListeners()
+    } else {
+      // Fallback to Firebase-based game
+      fetchDuel()
 
-    // Subscribe to real-time updates
-    const unsubscribe = subscribeToDuel(params.id, (updatedDuel) => {
-      if (updatedDuel) {
-        setDuel((prev) => {
-          if (!prev) return null
+      // Subscribe to real-time updates for Firebase games
+      const unsubscribe = subscribeToDuel(params.id, (updatedDuel) => {
+        if (updatedDuel) {
+          setDuel((prev) => {
+            if (!prev) return null
 
-          // Check if question index changed (next question)
-          if (prev.currentQuestionIndex !== updatedDuel.currentQuestionIndex) {
-            setShowNextQuestion(true)
-            resetForNextQuestion()
+            // Check if question index changed (next question)
+            if (prev.currentQuestionIndex !== updatedDuel.currentQuestionIndex) {
+              setShowNextQuestion(true)
+              resetForNextQuestion()
 
-            // Hide next question indicator after 2 seconds
-            setTimeout(() => setShowNextQuestion(false), 2000)
+              // Hide next question indicator after 2 seconds
+              setTimeout(() => setShowNextQuestion(false), 2000)
+            }
+
+            // Check if bot answered (for training mode)
+            if (
+              updatedDuel.isTraining &&
+              updatedDuel.player2Answers &&
+              updatedDuel.player2Answers[updatedDuel.currentQuestionIndex] !== undefined &&
+              waitingForBot
+            ) {
+              setWaitingForBot(false)
+            }
+
+            return {
+              ...updatedDuel,
+              player1: prev.player1,
+              player2: prev.player2,
+            }
+          })
+
+          // Start timer when both players are present and quiz is ready
+          if (updatedDuel.status === "in_progress" && updatedDuel.quizData && !startTime) {
+            setStartTime(Date.now())
           }
-
-          // Check if bot answered (for training mode)
-          if (
-            updatedDuel.isTraining &&
-            updatedDuel.player2Answers &&
-            updatedDuel.player2Answers[updatedDuel.currentQuestionIndex] !== undefined &&
-            waitingForBot
-          ) {
-            setWaitingForBot(false)
-          }
-
-          return {
-            ...updatedDuel,
-            player1: prev.player1,
-            player2: prev.player2,
-          }
-        })
-
-        // Start timer when both players are present and quiz is ready
-        if (updatedDuel.status === "in_progress" && updatedDuel.quizData && !startTime) {
-          setStartTime(Date.now())
         }
+      })
+
+      return () => unsubscribe()
+    }
+  }, [user, userProfile, router, params.id])
+
+  // Add socket listeners function
+  const setupSocketListeners = () => {
+    const socket = socketClient.getSocket()
+    if (!socket) return
+
+    socket.emit("join-game", params.id)
+
+    socket.on("game-start", (data) => {
+      console.log("🚀 Socket game started:", data)
+      setDuel({
+        id: params.id,
+        player1Id: userProfile!.id,
+        player2Id: "opponent",
+        subject: "math" as any, // This should come from the socket data
+        quizData: data.quizData,
+        currentQuestionIndex: data.questionIndex,
+        player1Answers: [],
+        player2Answers: [],
+        player1Time: [],
+        player2Time: [],
+        player1Score: 0,
+        player2Score: 0,
+        status: "in_progress",
+        isTraining: false,
+        maxQuestions: 5,
+        createdAt: new Date(),
+      } as any)
+      setStartTime(Date.now())
+      setLoading(false)
+    })
+
+    socket.on("opponent-answered", () => {
+      console.log("👥 Opponent answered")
+      // Visual indicator that opponent has answered
+    })
+
+    socket.on("question-result", (data) => {
+      console.log("📊 Question result:", data)
+      setQuestionFeedback({
+        correct: data.correct,
+        correctAnswer: -1, // Will be filled from explanation
+        userAnswer: selectedAnswer || -1,
+        explanation: data.explanation,
+        questionIndex: duel?.currentQuestionIndex || 0,
+        questionText: duel?.quizData?.[duel?.currentQuestionIndex || 0]?.question || "",
+        options: duel?.quizData?.[duel?.currentQuestionIndex || 0]?.options || [],
+      })
+      setShowFeedback(true)
+
+      // Update scores
+      if (duel) {
+        setDuel((prev) =>
+          prev
+            ? {
+                ...prev,
+                player1Score: data.scores.player,
+                player2Score: data.scores.opponent,
+              }
+            : null,
+        )
+      }
+
+      // Hide feedback after 3 seconds
+      setTimeout(() => {
+        setShowFeedback(false)
+      }, 3000)
+    })
+
+    socket.on("next-question", (data) => {
+      console.log("➡️ Next question:", data)
+      if (duel) {
+        setDuel((prev) =>
+          prev
+            ? {
+                ...prev,
+                currentQuestionIndex: data.questionIndex,
+                quizData: prev.quizData, // Keep existing quiz data
+              }
+            : null,
+        )
+      }
+      resetForNextQuestion()
+    })
+
+    socket.on("game-end", (data) => {
+      console.log("🏁 Game ended:", data)
+      const gameResult = {
+        winnerId: data.winner,
+        player1Score: data.finalScores.player,
+        player2Score: data.finalScores.opponent,
+        player1Answers: [], // These would need to be tracked
+        player2Answers: [],
+        totalQuestions: 5,
+        eloChanges: data.eloChanges,
+        isTraining: false,
+      }
+      setResult(gameResult)
+
+      // Refresh user profile for updated ELO
+      if (refreshUserProfile) {
+        refreshUserProfile()
       }
     })
 
-    return () => unsubscribe()
-  }, [user, userProfile, router, fetchDuel, params.id, startTime])
+    socket.on("error", (error) => {
+      console.error("🔌 Socket error:", error)
+      setError(error)
+    })
+  }
 
   // Add beforeunload event to refresh profile when navigating away
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (refreshUserProfile) {
-        console.log('🚪 Duel page: Navigating away, refreshing user profile...')
+        console.log("🚪 Duel page: Navigating away, refreshing user profile...")
         refreshUserProfile()
       }
     }
 
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    
+    window.addEventListener("beforeunload", handleBeforeUnload)
+
     return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload)
+      window.removeEventListener("beforeunload", handleBeforeUnload)
     }
   }, [refreshUserProfile])
 
@@ -132,164 +258,183 @@ export default function DuelPage({ params }: DuelPageProps) {
     setShowFeedback(false)
   }
 
-  // Update the handleSubmitAnswer function to better handle training mode:
+  // Update handleSubmitAnswer for socket games
   const handleSubmitAnswer = async () => {
     if (submitted || !startTime || !userProfile) return
-    
+
     // If no answer selected and time hasn't run out, don't submit
     if (selectedAnswer === null && timeLeft > 0) return
-
-    // Log the answer submission for debugging
-    const currentQuestion = duel?.quizData?.[duel?.currentQuestionIndex ?? 0];
-    if (currentQuestion && duel) {
-      console.log(`🎯 FRONTEND: Submitting answer for question ${duel.currentQuestionIndex + 1}`);
-      console.log(`   Question: ${currentQuestion.question.substring(0, 50)}...`);
-      console.log(`   Selected answer index: ${selectedAnswer}`);
-      console.log(`   Selected option: "${selectedAnswer !== null && selectedAnswer >= 0 ? currentQuestion.options[selectedAnswer] || 'Invalid' : 'TIMEOUT/NO ANSWER'}"`);
-      console.log(`   Correct answer index: ${currentQuestion.correct_answer}`);
-      console.log(`   Correct option: "${currentQuestion.options[currentQuestion.correct_answer] || 'Invalid'}"`);
-      console.log(`   Is correct: ${selectedAnswer === currentQuestion.correct_answer}`);
-    }
 
     setSubmitted(true)
     setError("")
     const timeElapsed = Date.now() - startTime
 
-    try {
-      // Convert selectedAnswer to string, use "-1" for timeout/no answer
+    if (isSocketGame) {
+      // Handle socket-based game
       const answerToSubmit = selectedAnswer !== null ? selectedAnswer.toString() : "-1"
-      
-      const result = await submitAnswer(params.id, answerToSubmit, timeElapsed, userProfile.id)
+      socketClient.emit("player-answer", {
+        answer: answerToSubmit,
+        timeElapsed,
+      })
+    } else {
+      // Handle Firebase-based game (existing logic)
+      const currentQuestion = duel?.quizData?.[duel?.currentQuestionIndex ?? 0]
+      if (currentQuestion && duel) {
+        console.log(`🎯 FRONTEND: Submitting answer for question ${duel.currentQuestionIndex + 1}`)
+        console.log(`   Question: ${currentQuestion.question.substring(0, 50)}...`)
+        console.log(`   Selected answer index: ${selectedAnswer}`)
+        console.log(
+          `   Selected option: "${selectedAnswer !== null && selectedAnswer >= 0 ? currentQuestion.options[selectedAnswer] || "Invalid" : "TIMEOUT/NO ANSWER"}"`,
+        )
+        console.log(`   Correct answer index: ${currentQuestion.correct_answer}`)
+        console.log(`   Correct option: "${currentQuestion.options[currentQuestion.correct_answer] || "Invalid"}"`)
+        console.log(`   Is correct: ${selectedAnswer === currentQuestion.correct_answer}`)
+      }
 
-      if (result.success) {
-        console.log(`✅ FRONTEND: Answer submitted successfully`);
-        
-        // Show feedback if available
-        if (result.questionFeedback) {
-          console.log('📋 FEEDBACK RECEIVED:', result.questionFeedback)
-          setQuestionFeedback(result.questionFeedback)
-          setShowFeedback(true)
-          
-          // Hide feedback after 3 seconds and continue
-          setTimeout(() => {
-            setShowFeedback(false)
+      try {
+        // Convert selectedAnswer to string, use "-1" for timeout/no answer
+        const answerToSubmit = selectedAnswer !== null ? selectedAnswer.toString() : "-1"
+
+        const result = await submitAnswer(params.id, answerToSubmit, timeElapsed, userProfile.id)
+
+        if (result.success) {
+          console.log(`✅ FRONTEND: Answer submitted successfully`)
+
+          // Show feedback if available
+          if (result.questionFeedback) {
+            console.log("📋 FEEDBACK RECEIVED:", result.questionFeedback)
+            setQuestionFeedback(result.questionFeedback)
+            setShowFeedback(true)
+
+            // Hide feedback after 3 seconds and continue
+            setTimeout(() => {
+              setShowFeedback(false)
+              if (result.waitingForBot) {
+                setWaitingForBot(true)
+              } else if (result.nextQuestion) {
+                // Next question will be handled by real-time listener
+                console.log("Moving to next question...")
+              } else if (result.completed && result.result) {
+                console.log("🎮 Game completed, refreshing user profile for updated lives...")
+                setResult(result.result)
+                // Refresh user profile to get updated lives after training mode
+                if (refreshUserProfile) {
+                  refreshUserProfile()
+                  // Also trigger a small delay and another refresh to ensure Firestore updates propagate
+                  setTimeout(() => {
+                    console.log("🔄 Secondary profile refresh after game completion...")
+                    refreshUserProfile()
+                  }, 1000)
+                }
+              }
+            }, 3000)
+          } else {
+            // No feedback, continue immediately
             if (result.waitingForBot) {
               setWaitingForBot(true)
             } else if (result.nextQuestion) {
               // Next question will be handled by real-time listener
               console.log("Moving to next question...")
             } else if (result.completed && result.result) {
-              console.log('🎮 Game completed, refreshing user profile for updated lives...')
+              console.log("🎮 Game completed, refreshing user profile for updated lives...")
               setResult(result.result)
               // Refresh user profile to get updated lives after training mode
               if (refreshUserProfile) {
                 refreshUserProfile()
                 // Also trigger a small delay and another refresh to ensure Firestore updates propagate
                 setTimeout(() => {
-                  console.log('🔄 Secondary profile refresh after game completion...')
+                  console.log("🔄 Secondary profile refresh after game completion...")
                   refreshUserProfile()
                 }, 1000)
               }
             }
-          }, 3000)
-        } else {
-          // No feedback, continue immediately
-          if (result.waitingForBot) {
-            setWaitingForBot(true)
-          } else if (result.nextQuestion) {
-            // Next question will be handled by real-time listener
-            console.log("Moving to next question...")
-          } else if (result.completed && result.result) {
-            console.log('🎮 Game completed, refreshing user profile for updated lives...')
-            setResult(result.result)
-            // Refresh user profile to get updated lives after training mode
-            if (refreshUserProfile) {
-              refreshUserProfile()
-              // Also trigger a small delay and another refresh to ensure Firestore updates propagate
-              setTimeout(() => {
-                console.log('🔄 Secondary profile refresh after game completion...')
-                refreshUserProfile()
-              }, 1000)
-            }
           }
+        } else {
+          console.error(`❌ FRONTEND: Answer submission failed:`, result.error)
+          setError(result.error || "Failed to submit answer")
+          setSubmitted(false)
         }
-      } else {
-        console.error(`❌ FRONTEND: Answer submission failed:`, result.error);
-        setError(result.error || "Failed to submit answer")
+      } catch (error) {
+        console.error("Submit answer error:", error)
+        setError("Failed to submit answer")
         setSubmitted(false)
       }
-    } catch (error) {
-      console.error("Submit answer error:", error)
-      setError("Failed to submit answer")
-      setSubmitted(false)
     }
   }
 
-  // Handle timeout submission
+  // Update handleTimeoutSubmission similarly
   const handleTimeoutSubmission = async () => {
     if (!userProfile || !startTime) return
-    
-    console.log('⏰ Timer ran out! Auto-submitting wrong answer...')
+
+    console.log("⏰ Timer ran out! Auto-submitting wrong answer...")
     setSubmitted(true)
     setError("")
     const timeElapsed = Date.now() - startTime
 
-    try {
-      const result = await submitAnswer(params.id, "-1", timeElapsed, userProfile.id)
-      
-      if (result.success) {
-        console.log(`✅ FRONTEND: Timeout answer submitted successfully`);
-        
-        // Show feedback if available
-        if (result.questionFeedback) {
-          console.log('📋 TIMEOUT FEEDBACK RECEIVED:', result.questionFeedback)
-          setQuestionFeedback(result.questionFeedback)
-          setShowFeedback(true)
-          
-          // Hide feedback after 3 seconds and continue
-          setTimeout(() => {
-            setShowFeedback(false)
+    if (isSocketGame) {
+      socketClient.emit("player-answer", {
+        answer: "-1",
+        timeElapsed,
+      })
+    } else {
+      // Existing Firebase timeout logic
+      try {
+        const result = await submitAnswer(params.id, "-1", timeElapsed, userProfile.id)
+
+        if (result.success) {
+          console.log(`✅ FRONTEND: Timeout answer submitted successfully`)
+
+          // Show feedback if available
+          if (result.questionFeedback) {
+            console.log("📋 TIMEOUT FEEDBACK RECEIVED:", result.questionFeedback)
+            setQuestionFeedback(result.questionFeedback)
+            setShowFeedback(true)
+
+            // Hide feedback after 3 seconds and continue
+            setTimeout(() => {
+              setShowFeedback(false)
+              if (result.waitingForBot) {
+                setWaitingForBot(true)
+              } else if (result.nextQuestion) {
+                console.log("Moving to next question...")
+              } else if (result.completed && result.result) {
+                console.log("🎮 Timeout game completed, refreshing user profile for updated lives...")
+                setResult(result.result)
+                // Refresh user profile after training mode
+                if (refreshUserProfile) {
+                  refreshUserProfile()
+                  // Also trigger a small delay and another refresh to ensure Firestore updates propagate
+                  setTimeout(() => {
+                    console.log("🔄 Secondary profile refresh after timeout game completion...")
+                    refreshUserProfile()
+                  }, 1000)
+                }
+              }
+            }, 3000)
+          } else {
             if (result.waitingForBot) {
               setWaitingForBot(true)
             } else if (result.nextQuestion) {
               console.log("Moving to next question...")
             } else if (result.completed && result.result) {
-              console.log('🎮 Timeout game completed, refreshing user profile for updated lives...')
+              console.log("🎮 Timeout game completed, refreshing user profile for updated lives...")
               setResult(result.result)
-              // Refresh user profile to get updated lives after training mode
+              // Refresh user profile after training mode
               if (refreshUserProfile) {
                 refreshUserProfile()
-                // Also trigger a small delay and another refresh to ensure Firestore updates propagate
-                setTimeout(() => {
-                  console.log('🔄 Secondary profile refresh after timeout game completion...')
-                  refreshUserProfile()
-                }, 1000)
               }
             }
-          }, 3000)
-        } else {
-          if (result.waitingForBot) {
-            setWaitingForBot(true)
-          } else if (result.nextQuestion) {
-            console.log("Moving to next question...")
-          } else if (result.completed && result.result) {
-            console.log('🎮 Timeout game completed, refreshing user profile for updated lives...')
-            setResult(result.result)
-            // Refresh user profile to get updated lives after training mode
-            if (refreshUserProfile) {
-              refreshUserProfile()
-            }
           }
+        } else {
+          console.error(`❌ FRONTEND: Timeout submission failed:`, result.error)
+          setError(result.error || "Failed to submit timeout answer")
+          setSubmitted(false)
         }
-      } else {
-        console.error(`❌ FRONTEND: Timeout submission failed:`, result.error);
-        setError(result.error || "Failed to submit timeout answer")
+      } catch (error) {
+        console.error("Timeout submit error:", error)
+        setError("Failed to submit timeout answer")
         setSubmitted(false)
       }
-    } catch (error) {
-      console.error("Timeout submit error:", error)
-      setError("Failed to submit timeout answer")
-      setSubmitted(false)
     }
   }
 
@@ -504,14 +649,14 @@ export default function DuelPage({ params }: DuelPageProps) {
             )}
 
             <div className="flex gap-4 justify-center">
-              <button 
+              <button
                 onClick={() => {
                   // Refresh profile before navigation to ensure dashboard has latest data
                   if (refreshUserProfile) {
                     refreshUserProfile()
                   }
                   router.push("/play")
-                }} 
+                }}
                 className="retro-button font-pixel text-slate-900 px-6 py-3"
               >
                 {isTrainingMode ? "🤖 TRAIN AGAIN" : "⚔️ BATTLE AGAIN"}
@@ -720,9 +865,7 @@ export default function DuelPage({ params }: DuelPageProps) {
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.8, opacity: 0 }}
                 className={`p-8 border-2 max-w-md w-full text-center ${
-                  questionFeedback.correct
-                    ? "bg-green-900/90 border-green-400"
-                    : "bg-red-900/90 border-red-400"
+                  questionFeedback.correct ? "bg-green-900/90 border-green-400" : "bg-red-900/90 border-red-400"
                 }`}
               >
                 <motion.div
@@ -733,28 +876,30 @@ export default function DuelPage({ params }: DuelPageProps) {
                 >
                   {questionFeedback.correct ? "✅" : "❌"}
                 </motion.div>
-                
-                <h3 className={`font-pixel text-2xl mb-4 ${
-                  questionFeedback.correct ? "text-green-300" : "text-red-300"
-                }`}>
+
+                <h3
+                  className={`font-pixel text-2xl mb-4 ${questionFeedback.correct ? "text-green-300" : "text-red-300"}`}
+                >
                   {questionFeedback.correct ? "CORRECT!" : "WRONG!"}
                 </h3>
-                
+
                 <div className="space-y-3 text-left">
                   {questionFeedback.userAnswer >= 0 ? (
                     <p className="font-terminal text-sm text-slate-300">
-                      <span className="text-cyan-400">Your answer:</span> {questionFeedback.options[questionFeedback.userAnswer] || "Invalid"}
+                      <span className="text-cyan-400">Your answer:</span>{" "}
+                      {questionFeedback.options[questionFeedback.userAnswer] || "Invalid"}
                     </p>
                   ) : (
                     <p className="font-terminal text-sm text-red-300">
                       <span className="text-cyan-400">Your answer:</span> No answer / Timeout
                     </p>
                   )}
-                  
+
                   <p className="font-terminal text-sm text-slate-300">
-                    <span className="text-green-400">Correct answer:</span> {questionFeedback.options[questionFeedback.correctAnswer] || "Unknown"}
+                    <span className="text-green-400">Correct answer:</span>{" "}
+                    {questionFeedback.options[questionFeedback.correctAnswer] || "Unknown"}
                   </p>
-                  
+
                   {questionFeedback.explanation && (
                     <div className="pt-2 border-t border-slate-600">
                       <p className="font-terminal text-xs text-slate-400 mb-1">Explanation:</p>
@@ -762,7 +907,7 @@ export default function DuelPage({ params }: DuelPageProps) {
                     </div>
                   )}
                 </div>
-                
+
                 <div className="mt-6">
                   <div className="w-full h-1 bg-slate-700 rounded-full">
                     <motion.div
@@ -772,9 +917,7 @@ export default function DuelPage({ params }: DuelPageProps) {
                       className="h-full bg-gradient-to-r from-cyan-400 to-purple-400 rounded-full"
                     />
                   </div>
-                  <p className="font-terminal text-xs text-slate-400 mt-2">
-                    Continuing in 3 seconds...
-                  </p>
+                  <p className="font-terminal text-xs text-slate-400 mt-2">Continuing in 3 seconds...</p>
                 </div>
               </motion.div>
             </motion.div>

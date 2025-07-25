@@ -1,5 +1,6 @@
-import { createDuel, findWaitingDuel, updateDuel, getUserEloForSubject } from "@/lib/firebase/firestore"
+import { createDuel, getUserEloForSubject } from "@/lib/firebase/firestore"
 import { createBotOpponent } from "@/lib/game-modes"
+import { socketClient } from "@/lib/socket-client"
 import type { GameConfig } from "@/lib/game-modes"
 import type { User } from "@/lib/firebase/firestore"
 
@@ -10,43 +11,44 @@ export interface GameStartResult {
   opponent?: any
   matched?: boolean
   error?: string
+  useSocket?: boolean // New flag to indicate socket usage
 }
 
 // Client-side function to generate questions via API
 async function generateQuizQuestionsViaAPI(
-  subject: string, 
-  difficulty: string, 
+  subject: string,
+  difficulty: string,
   count: number,
   userToken: string,
-  specificTopic?: string // Add optional specific topic parameter
+  specificTopic?: string, // Add optional specific topic parameter
 ) {
-  console.log('🤖 Calling AI question generation API:', { subject, difficulty, count, specificTopic })
-  
-  const response = await fetch('/api/generate-quiz', {
-    method: 'POST',
+  console.log("🤖 Calling AI question generation API:", { subject, difficulty, count, specificTopic })
+
+  const response = await fetch("/api/generate-quiz", {
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${userToken}`
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${userToken}`,
     },
     body: JSON.stringify({
       subject,
       difficulty,
       count,
-      specificTopic // Pass the specific topic to the API
-    })
-  });
+      specificTopic, // Pass the specific topic to the API
+    }),
+  })
 
-  console.log('📡 API Response status:', response.status)
+  console.log("📡 API Response status:", response.status)
 
   if (!response.ok) {
-    const error = await response.json();
-    console.error('❌ API Error:', error)
-    throw new Error(error.error || 'Failed to generate questions');
+    const error = await response.json()
+    console.error("❌ API Error:", error)
+    throw new Error(error.error || "Failed to generate questions")
   }
 
-  const data = await response.json();
-  console.log('✅ API Success:', data.metadata || 'No metadata')
-  return data.data; // Return the questions array
+  const data = await response.json()
+  console.log("✅ API Success:", data.metadata || "No metadata")
+  return data.data // Return the questions array
 }
 
 export const startGame = async (config: GameConfig, currentUser: User, userToken: string): Promise<GameStartResult> => {
@@ -71,10 +73,16 @@ export const startGame = async (config: GameConfig, currentUser: User, userToken
       }
 
       const botOpponent = createBotOpponent(difficulty)
-      
+
       // For training mode, use the specific level name if available
       const specificTopic = config.trainingLevel?.levelName
-      const quizQuestions = await generateQuizQuestionsViaAPI(subject, difficulty, maxQuestions, userToken, specificTopic)
+      const quizQuestions = await generateQuizQuestionsViaAPI(
+        subject,
+        difficulty,
+        maxQuestions,
+        userToken,
+        specificTopic,
+      )
 
       const duelId = await createDuel({
         player1Id: currentUser.id,
@@ -102,52 +110,30 @@ export const startGame = async (config: GameConfig, currentUser: User, userToken
         mode: "training",
         opponent: botOpponent,
         matched: true,
+        useSocket: false,
       }
     } else {
-      // PvP mode - find or create match (no difficulty needed)
+      // PvP mode - use Socket.io for real-time matchmaking
+      console.log("🎯 Starting PvP mode with Socket.io")
+
       const userElo = getUserEloForSubject(currentUser.elo, subject as any)
-      const waitingDuel = await findWaitingDuel(subject as any, currentUser.id, userElo)
 
-      if (waitingDuel) {
-        // Join existing duel
-        const quizQuestions = await generateQuizQuestionsViaAPI(subject, "intermediate", maxQuestions, userToken)
+      // Connect to socket server
+      const socket = socketClient.connect()
 
-        await updateDuel(waitingDuel.id, {
-          player2Id: currentUser.id,
-          status: "in_progress",
-          quizData: quizQuestions,
-          startedAt: new Date(),
-        })
+      // Join matchmaking queue
+      socketClient.emit("join-queue", {
+        userId: currentUser.id,
+        subject,
+        userElo,
+        username: currentUser.username,
+      })
 
-        return {
-          success: true,
-          duelId: waitingDuel.id,
-          mode: "pvp",
-          matched: true,
-        }
-      } else {
-        // Create new duel and wait for opponent
-        const duelId = await createDuel({
-          player1Id: currentUser.id,
-          subject: subject as any,
-          currentQuestionIndex: 0,
-          player1Answers: [],
-          player2Answers: [],
-          player1Time: [],
-          player2Time: [],
-          player1Score: 0,
-          player2Score: 0,
-          status: "waiting",
-          isTraining: false,
-          maxQuestions,
-        })
-
-        return {
-          success: true,
-          duelId,
-          mode: "pvp",
-          matched: false,
-        }
+      return {
+        success: true,
+        mode: "pvp",
+        matched: false,
+        useSocket: true,
       }
     }
   } catch (error) {
