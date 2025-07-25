@@ -105,10 +105,39 @@ app.prepare().then(() => {
       console.log("🎮 Player attempting to join game:", data)
       console.log("📊 Active sessions:", Array.from(activeSessions.keys()))
       
-      const session = activeSessions.get(data.duelId)
+      let session = activeSessions.get(data.duelId)
       if (!session) {
         console.log("❌ Game session not found for duel:", data.duelId)
-        socket.emit("error", "Game session not found")
+        console.log("🔄 Creating fallback AI training session...")
+        
+        // Create a fallback AI training session
+        const playerData = {
+          userId: data.userId,
+          username: `Player_${data.userId.slice(-4)}`,
+          socketId: socket.id
+        }
+        
+        const aiOpponent = {
+          userId: "bot_intermediate",
+          username: "TRAINING_BOT", 
+          socketId: "ai_socket"
+        }
+        
+        // Create AI training session
+        session = await createAITrainingSession(data.duelId, playerData, aiOpponent, "math")
+        activeSessions.set(data.duelId, session)
+        playerSessions.set(socket.id, data.duelId)
+        
+        console.log("✅ Created fallback AI session for:", data.duelId)
+        
+        // Start the AI training game immediately
+        socket.emit("game-start", {
+          duelId: data.duelId,
+          subject: session.subject,
+          quizData: session.questions,
+          questionIndex: 0,
+          opponent: aiOpponent
+        })
         return
       }
 
@@ -257,6 +286,67 @@ app.prepare().then(() => {
       
       player1Socket?.emit("error", "Failed to create game session")
       player2Socket?.emit("error", "Failed to create game session")
+    }
+  }
+
+  // Add function to create AI training session for fallback
+  async function createAITrainingSession(duelId, player, aiOpponent, subject) {
+    try {
+      console.log("🤖 Creating AI training session for:", duelId)
+      
+      // Use the same static questions as regular sessions
+      const staticQuestions = [
+        {
+          question: "What is 15 + 27?",
+          options: ["42", "41", "43", "40"],
+          correct_answer: 0,
+          explanation: "15 + 27 = 42"
+        },
+        {
+          question: "What is 8 × 6?",
+          options: ["46", "48", "50", "44"],
+          correct_answer: 1,
+          explanation: "8 × 6 = 48"
+        },
+        {
+          question: "What is 100 ÷ 4?",
+          options: ["20", "25", "30", "24"],
+          correct_answer: 1,
+          explanation: "100 ÷ 4 = 25"
+        },
+        {
+          question: "What is 12²?",
+          options: ["144", "124", "164", "134"],
+          correct_answer: 0,
+          explanation: "12 × 12 = 144"
+        },
+        {
+          question: "What is √64?",
+          options: ["6", "8", "10", "12"],
+          correct_answer: 1,
+          explanation: "√64 = 8"
+        }
+      ]
+
+      const session = {
+        id: duelId,
+        player1: player,
+        player2: aiOpponent,
+        subject: subject,
+        questions: staticQuestions,
+        currentQuestionIndex: 0,
+        scores: { player1: 0, player2: 0 },
+        answers: { player1: [], player2: [] },
+        startTime: Date.now(),
+        isTraining: true
+      }
+
+      console.log("✅ AI training session created successfully")
+      return session
+      
+    } catch (error) {
+      console.error("❌ Error creating AI training session:", error)
+      throw error
     }
   }
 
