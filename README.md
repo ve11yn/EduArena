@@ -4,6 +4,29 @@ An interactive, real-time quiz platform built with **Next.js**, featuring **Duol
 
 ---
 
+## Documentations
+![Alt text](./readme/landing.png)
+
+Battle Arena
+![Alt text](./readme/battle-arena.png)
+
+1v1 Player Battle
+![Alt text](./readme/matchmaking.png)
+![Alt text](./readme/quiz.png)
+![Alt text](./readme/leaderboard.png)
+
+Training with Bot
+![Alt text](./readme/bot-training.png)
+
+Edu: AI Study Assistant
+![Alt text](./readme/chatbot.png)
+
+Profile
+![Alt text](./readme/profile.png)
+
+
+---
+
 ## 🚀 Features
 
 - 🎯 **Multi-Subject ELO Ranking**  
