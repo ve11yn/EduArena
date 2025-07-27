@@ -89,11 +89,6 @@ npm run dev
 ```
 ### 🔐 Firebase Configuration
 
-Update `.env.local` with your Firebase credentials:
-
-```bash
-# Firebase Admin SDK Config (real values for production)
-FIREBASE_PROJECT_ID=eduarena-53c53
 
 ## 📌 Tech Stack
 
