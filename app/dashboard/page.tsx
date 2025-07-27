@@ -237,7 +237,7 @@ export default function DashboardPage() {
                   <motion.button
                     whileHover={{ scale: 1.05, y: -2 }}
                     whileTap={{ scale: 0.95 }}
-                    className="flex gap-2 bg-blue-400/20 border-2 border-blue-400 text-blue-400 font-pixel px-6 py-3 text-sm tracking-wider hover:bg-blue-400/30 transition-colors relative z-10"
+                    className="flex gap-2  bg-blue-400/20 border-2 border-blue-400 text-blue-400 font-pixel px-6 py-3 text-sm tracking-wider hover:bg-blue-400/30 transition-colors relative z-10"
                     style={{ pointerEvents: 'auto' }}
                   >
                     <Bot/>
